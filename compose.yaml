@@ -1,0 +1,41 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: watchkeep
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-watchkeep}
+      POSTGRES_DB: watchkeep
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      # Creates the second database `catalog` with the TMDB tables on first start.
+      - ./catalog/init-postgres.sh:/docker-entrypoint-initdb.d/10-catalog.sh:ro
+      - ./catalog/schema.sql:/docker-entrypoint-initdb.d/catalog-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U watchkeep -d watchkeep"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  watchkeep:
+    build: .
+    image: watchkeep:latest
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${WATCHKEEP_PORT:-8484}:8484"
+    environment:
+      WATCHKEEP_DATABASE_URL: postgres://watchkeep:${POSTGRES_PASSWORD:-watchkeep}@postgres:5432/watchkeep
+      WATCHKEEP_CATALOG_DATABASE_URL: postgres://watchkeep:${POSTGRES_PASSWORD:-watchkeep}@postgres:5432/catalog
+      WATCHKEEP_CATALOG_LANGUAGE: ${WATCHKEEP_CATALOG_LANGUAGE:-en}
+      WATCHKEEP_WEBHOOK_TOKEN: ${WATCHKEEP_WEBHOOK_TOKEN:?set WATCHKEEP_WEBHOOK_TOKEN in .env}
+      WATCHKEEP_PLEX_URL: ${WATCHKEEP_PLEX_URL:-}
+      WATCHKEEP_PLEX_TOKEN: ${WATCHKEEP_PLEX_TOKEN:-}
+      WATCHKEEP_PLEX_ACCOUNTS: ${WATCHKEEP_PLEX_ACCOUNTS:-}
+      WATCHKEEP_SYNC_INTERVAL_MINUTES: ${WATCHKEEP_SYNC_INTERVAL_MINUTES:-0}
+      WATCHKEEP_WATCHED_THRESHOLD_PERCENT: ${WATCHKEEP_WATCHED_THRESHOLD_PERCENT:-85}
+
+volumes:
+  postgres-data:

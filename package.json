@@ -1,0 +1,30 @@
+{
+  "name": "watchkeep",
+  "version": "0.1.0",
+  "description": "Self-hosted watch history tracker for movies and TV shows with Plex webhook scrobbling.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/main.js",
+    "dev": "node --watch --experimental-transform-types src/main.ts",
+    "sync": "node dist/main.js sync",
+    "catalog:import": "node dist/main.js catalog:import",
+    "test": "scripts/test-db.sh node --test --experimental-transform-types --test-concurrency=4 'test/**/*.test.ts'",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.1",
+    "hono": "^4.13.7",
+    "pg": "^8.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.5.1",
+    "@types/pg": "^8.23.1",
+    "typescript": "^7.0.2"
+  }
+}
