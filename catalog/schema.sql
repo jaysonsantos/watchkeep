@@ -1,6 +1,6 @@
 -- TMDB catalog schema for PostgreSQL.
 -- A SQLite file with the same table and column names is a valid source for
--- `npm run catalog:import`. The import copies rows without a mapping step.
+-- `pnpm catalog:import`. The import copies rows without a mapping step.
 -- Watchkeep only reads these tables.
 
 CREATE TABLE IF NOT EXISTS genre (

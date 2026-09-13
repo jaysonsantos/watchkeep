@@ -28,7 +28,7 @@ Watchkeep is a self-hosted watch tracker with Plex webhook scrobbling. Read
 - Keep the app working when `catalogPool` is null.
 - Timestamps are ISO-8601 text columns. Use the `Clock` interface, not `new Date()`, inside services.
 - Use the `html` tagged template in `src/ui/render.ts`. It escapes values. Wrap trusted markup with `raw()`.
-- Run `npm run typecheck` and `npm test` before you commit. The tests need Docker or `WATCHKEEP_TEST_DATABASE_URL`.
+- Use pnpm, never npm. Run `pnpm typecheck` and `pnpm test` before you commit. The tests need Docker or `WATCHKEEP_TEST_DATABASE_URL`.
 
 ## Plex facts
 

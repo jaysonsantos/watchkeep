@@ -137,14 +137,14 @@ With a catalog, an episode TMDB id also resolves its show.
 
 ## Development
 
-Requirements: Node 24 and Docker (for the test database).
+Requirements: Node 24, pnpm, and Docker (for the test database).
 
 ```
-npm install
-npm run typecheck
-npm test            # starts a throwaway Postgres container
-npm run build
-npm run dev         # needs WATCHKEEP_DATABASE_URL
+pnpm install
+pnpm typecheck
+pnpm test           # starts a throwaway Postgres container
+pnpm build
+pnpm dev            # needs WATCHKEEP_DATABASE_URL
 ```
 
 For local development with direnv, copy `.envrc.example` to `.envrc`, set the
