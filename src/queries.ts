@@ -41,6 +41,18 @@ export interface ProgressView extends ProgressRow {
   poster_path: string | null;
 }
 
+export interface WatchlistItem {
+  kind: "movie" | "show";
+  id: number;
+  title: string;
+  year: number | null;
+  poster_path: string | null;
+  listed_at: string;
+  rank: number | null;
+  /** Plays for a movie, watched episodes for a show. */
+  watched_count: number;
+}
+
 export interface Stats {
   movies: number;
   movies_watched: number;
@@ -181,6 +193,25 @@ export class Queries {
        ORDER BY pr.updated_at DESC`,
     );
     return rows;
+  }
+
+  async watchlist(): Promise<WatchlistItem[]> {
+    const { rows } = await this.db.query<WatchlistItem>(
+      `SELECT w.target_kind AS kind, m.id, m.title, m.year, m.poster_path, w.listed_at, w.rank,
+         CASE w.target_kind
+           WHEN 'movie' THEN (SELECT COUNT(*) FROM plays p WHERE p.target_kind = 'movie' AND p.target_id = m.id)
+           ELSE (SELECT COUNT(DISTINCT p.target_id) FROM plays p JOIN episodes e ON e.id = p.target_id
+                 WHERE p.target_kind = 'episode' AND e.show_id = m.id)
+         END::int AS watched_count
+       FROM watchlist w JOIN media m ON m.id = w.target_id
+       ORDER BY w.rank NULLS LAST, w.listed_at`,
+    );
+    return rows;
+  }
+
+  async isOnWatchlist(kind: "movie" | "show", id: number): Promise<boolean> {
+    const { rows } = await this.db.query("SELECT 1 FROM watchlist WHERE target_kind = $1 AND target_id = $2", [kind, id]);
+    return rows.length > 0;
   }
 
   async recentWebhooks(limit = 50): Promise<WebhookLogEntry[]> {

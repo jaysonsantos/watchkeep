@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import type { AppContext } from "../app.ts";
 import type { TargetKind } from "../db.ts";
 import type { WatchFilter } from "../queries.ts";
-import { renderDashboard, renderHistory, renderMovies, renderShow, renderShows, renderWebhooks } from "../ui/render.ts";
+import { renderDashboard, renderHistory, renderMovies, renderShow, renderShows, renderWatchlist, renderWebhooks } from "../ui/render.ts";
 
 function filterOf(value: string | undefined): WatchFilter {
   return value === "watched" || value === "unwatched" ? value : "all";
@@ -41,8 +41,17 @@ export function uiRoutes(ctx: AppContext): Hono {
     const id = Number(c.req.param("id"));
     const detail = Number.isInteger(id) ? await ctx.views.show(id) : null;
     if (!detail) return c.notFound();
-    return c.html(renderShow({ images, show: detail.show, episodes: detail.episodes }));
+    return c.html(
+      renderShow({
+        images,
+        show: detail.show,
+        episodes: detail.episodes,
+        onWatchlist: await ctx.queries.isOnWatchlist("show", detail.show.id),
+      }),
+    );
   });
+
+  app.get("/watchlist", async (c) => c.html(renderWatchlist({ images, items: await ctx.queries.watchlist() })));
 
   app.get("/history", async (c) => {
     const pageSize = 50;
@@ -89,6 +98,18 @@ export function uiRoutes(ctx: AppContext): Hono {
           break;
         case "remove-play":
           await ctx.actions.removePlay(id);
+          break;
+        case "watchlist-add-movie":
+        case "watchlist-remove-movie":
+          await ctx.actions.setWatchlist("movie", id, action === "watchlist-add-movie");
+          break;
+        case "watchlist-add-show":
+        case "watchlist-remove-show":
+          await ctx.actions.setWatchlist("show", id, action === "watchlist-add-show");
+          break;
+        case "hide-show":
+        case "unhide-show":
+          await ctx.actions.setHidden(id, action === "hide-show");
           break;
         case "clear-progress": {
           const kind = field("kind") as TargetKind;

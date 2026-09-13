@@ -149,6 +149,22 @@ export class Catalog {
     return rows[0] ? this.movie(rows[0]) : null;
   }
 
+  async moviesByTmdbIds(ids: number[]): Promise<Map<number, CatalogMovie>> {
+    const result = new Map<number, CatalogMovie>();
+    if (ids.length === 0) return result;
+    const { rows } = await this.db.query<MovieRow>(`SELECT ${MOVIE_COLUMNS} FROM tmdb_movie WHERE id = ANY($1::int[])`, [ids]);
+    for (const row of rows) result.set(row.id, this.movie(row));
+    return result;
+  }
+
+  async moviesByImdbIds(ids: string[]): Promise<Map<string, CatalogMovie>> {
+    const result = new Map<string, CatalogMovie>();
+    if (ids.length === 0) return result;
+    const { rows } = await this.db.query<MovieRow>(`SELECT ${MOVIE_COLUMNS} FROM tmdb_movie WHERE imdb_id = ANY($1::text[])`, [ids]);
+    for (const row of rows) if (row.imdb_id && !result.has(row.imdb_id)) result.set(row.imdb_id, this.movie(row));
+    return result;
+  }
+
   // --- shows ---------------------------------------------------------------
 
   async showByTmdbId(id: number): Promise<CatalogShow | null> {
@@ -161,6 +177,23 @@ export class Catalog {
     if (ids.length === 0) return result;
     const { rows } = await this.db.query<ShowRow>(`SELECT ${SHOW_COLUMNS} FROM tmdb_show WHERE id = ANY($1::int[])`, [ids]);
     for (const row of rows) result.set(row.id, this.show(row));
+    return result;
+  }
+
+  async showsByTvdbIds(ids: string[]): Promise<Map<string, CatalogShow>> {
+    const result = new Map<string, CatalogShow>();
+    const numeric = ids.map(Number).filter((id) => Number.isInteger(id));
+    if (numeric.length === 0) return result;
+    const { rows } = await this.db.query<ShowRow>(`SELECT ${SHOW_COLUMNS} FROM tmdb_show WHERE tvdb_id = ANY($1::int[])`, [numeric]);
+    for (const row of rows) if (row.tvdb_id !== null && !result.has(String(row.tvdb_id))) result.set(String(row.tvdb_id), this.show(row));
+    return result;
+  }
+
+  async showsByImdbIds(ids: string[]): Promise<Map<string, CatalogShow>> {
+    const result = new Map<string, CatalogShow>();
+    if (ids.length === 0) return result;
+    const { rows } = await this.db.query<ShowRow>(`SELECT ${SHOW_COLUMNS} FROM tmdb_show WHERE imdb_id = ANY($1::text[])`, [ids]);
+    for (const row of rows) if (row.imdb_id && !result.has(row.imdb_id)) result.set(row.imdb_id, this.show(row));
     return result;
   }
 
@@ -223,6 +256,20 @@ export class Catalog {
       [showTmdbId],
     );
     return rows.map((row) => this.episodeOf(row));
+  }
+
+  /** Every episode of the given shows, keyed by `showTmdbId:season:number`. */
+  async episodesForShows(showTmdbIds: number[]): Promise<Map<string, CatalogEpisode>> {
+    const result = new Map<string, CatalogEpisode>();
+    if (showTmdbIds.length === 0) return result;
+    const { rows } = await this.db.query<EpisodeRow & { show_id: number }>(
+      `SELECT se.show_id, e.id, se.season_number, e.episode_number, e.name, e.air_date, e.runtime, e.still_path
+       FROM tmdb_episode e JOIN tmdb_season se ON se.id = e.season_id
+       WHERE se.show_id = ANY($1::int[])`,
+      [showTmdbIds],
+    );
+    for (const row of rows) result.set(`${row.show_id}:${row.season_number}:${row.episode_number}`, this.episodeOf(row));
+    return result;
   }
 
   /** Count of aired regular-season episodes per show, for progress totals. */

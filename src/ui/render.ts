@@ -1,4 +1,4 @@
-import type { HistoryEntry, MovieView, ProgressView, Stats, WatchFilter } from "../queries.ts";
+import type { HistoryEntry, MovieView, ProgressView, Stats, WatchFilter, WatchlistItem } from "../queries.ts";
 import type { MergedEpisode, ShowListItem } from "../views.ts";
 
 const CSS = `
@@ -86,6 +86,7 @@ function layout(title: string, active: string, body: Raw): string {
     ["/", "Dashboard"],
     ["/movies", "Movies"],
     ["/shows", "Shows"],
+    ["/watchlist", "Watchlist"],
     ["/history", "History"],
     ["/webhooks", "Webhooks"],
   ];
@@ -229,7 +230,7 @@ ${input.movies.map(
   <td>${movie.play_count > 0 ? raw(html`<span class="badge ok">watched${movie.play_count > 1 ? ` ×${movie.play_count}` : ""}</span>`) : raw('<span class="badge">unwatched</span>')}</td>
   <td class="muted">${fmtDate(movie.last_watched_at)}</td>
   <td class="muted">${fmtDuration(movie.duration_ms)}</td>
-  <td>${movie.play_count > 0 ? actionForm("unwatch-movie", movie.id, back, "Mark unwatched") : actionForm("watch-movie", movie.id, back, "Mark watched", true)}</td>
+  <td>${movie.play_count > 0 ? actionForm("unwatch-movie", movie.id, back, "Mark unwatched") : actionForm("watch-movie", movie.id, back, "Mark watched", true)} ${actionForm("watchlist-add-movie", movie.id, back, "+ Watchlist")}</td>
 </tr>`,
 )}
 </tbody></table>`)
@@ -249,7 +250,7 @@ ${input.shows.map((show) => {
   return html`<tr>
   <td><span class="title-cell">${poster(input.images, show.poster_path)}<span><a href="/shows/${show.id}">${show.title}</a>${show.year ? html` <span class="muted">(${show.year})</span>` : ""}</span></span></td>
   <td>${progressBar(show.watched_count, show.total_episodes || null)}</td>
-  <td><span class="badge ${complete ? "ok" : show.watched_count > 0 ? "part" : ""}">${show.watched_count} / ${show.total_episodes}</span></td>
+  <td><span class="badge ${complete ? "ok" : show.watched_count > 0 ? "part" : ""}">${show.watched_count} / ${show.total_episodes}</span>${show.hidden_at ? raw(' <span class="badge">hidden</span>') : ""}</td>
   <td class="muted">${fmtDate(show.last_watched_at)}</td>
 </tr>`;
 })}
@@ -268,7 +269,7 @@ function episodeAction(showId: number, episode: MergedEpisode, back: string): Ra
   return actionForm("watch-episode-number", showId, back, "Watched", true, extra);
 }
 
-export function renderShow(input: { images: string; show: ShowListItem; episodes: MergedEpisode[] }): string {
+export function renderShow(input: { images: string; show: ShowListItem; episodes: MergedEpisode[]; onWatchlist: boolean }): string {
   const { show } = input;
   const back = `/shows/${show.id}`;
   const today = new Date().toISOString().slice(0, 10);
@@ -281,7 +282,10 @@ export function renderShow(input: { images: string; show: ShowListItem; episodes
   const body = html`${poster(input.images, show.poster_path, true)}<h1>${show.title}${show.year ? html` <span class="muted">(${show.year})</span>` : ""}</h1>
 <p class="muted">${show.watched_count} of ${show.total_episodes} episodes watched.${show.rating !== null ? ` Rated ${show.rating}/10.` : ""}</p>
 ${show.summary ? html`<p class="muted">${show.summary}</p>` : ""}
-<p>${actionForm("watch-show", show.id, back, "Mark all watched", true)} ${actionForm("unwatch-show", show.id, back, "Mark all unwatched")} <a href="/shows">← Shows</a></p>
+<p>${actionForm("watch-show", show.id, back, "Mark all watched", true)} ${actionForm("unwatch-show", show.id, back, "Mark all unwatched")}
+${input.onWatchlist ? actionForm("watchlist-remove-show", show.id, back, "Remove from watchlist") : actionForm("watchlist-add-show", show.id, back, "Add to watchlist")}
+${show.hidden_at ? actionForm("unhide-show", show.id, back, "Unhide") : actionForm("hide-show", show.id, back, "Hide from unwatched")}
+<a href="/shows">← Shows</a></p>
 ${
   input.episodes.length === 0
     ? raw('<div class="empty">No episodes known yet. Configure the TMDB catalog or run a Plex sync to import the episode list.</div>')
@@ -336,6 +340,29 @@ ${input.entries.map(
   ${input.page < pages ? raw(html`<a href="/history?page=${input.page + 1}">Older →</a>`) : ""}
 </div>`;
   return layout("History", "/history", body);
+}
+
+export function renderWatchlist(input: { images: string; items: WatchlistItem[] }): string {
+  const back = "/watchlist";
+  const body = html`<h1>Watchlist</h1>
+${
+  input.items.length === 0
+    ? raw('<div class="empty">The watchlist is empty. Add movies and shows from their pages.</div>')
+    : raw(html`<table><thead><tr><th>Title</th><th>Type</th><th>Status</th><th>Added</th><th></th></tr></thead><tbody>
+${input.items.map(
+  (item) => html`<tr>
+  <td><span class="title-cell">${poster(input.images, item.poster_path)}<span>${
+    item.kind === "show" ? html`<a href="/shows/${item.id}">${item.title}</a>` : item.title
+  }${item.year ? html` <span class="muted">(${item.year})</span>` : ""}</span></span></td>
+  <td class="muted">${item.kind}</td>
+  <td>${item.watched_count > 0 ? raw(html`<span class="badge part">${item.kind === "movie" ? "watched" : `${item.watched_count} episodes watched`}</span>`) : raw('<span class="badge">unwatched</span>')}</td>
+  <td class="muted">${fmtDate(item.listed_at)}</td>
+  <td>${actionForm(item.kind === "movie" ? "watchlist-remove-movie" : "watchlist-remove-show", item.id, back, "Remove")}</td>
+</tr>`,
+)}
+</tbody></table>`)
+}`;
+  return layout("Watchlist", "/watchlist", body);
 }
 
 export function renderWebhooks(input: {

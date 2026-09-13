@@ -47,7 +47,9 @@ export class Views {
       total_episodes: Math.max(row.episode_count, row.tmdb_id === null ? 0 : (totals.get(row.tmdb_id) ?? 0)),
     }));
     if (filter === "watched") return items.filter((item) => item.total_episodes > 0 && item.watched_count >= item.total_episodes);
-    if (filter === "unwatched") return items.filter((item) => item.watched_count < item.total_episodes || item.total_episodes === 0);
+    if (filter === "unwatched") {
+      return items.filter((item) => item.hidden_at === null && (item.watched_count < item.total_episodes || item.total_episodes === 0));
+    }
     return items;
   }
 

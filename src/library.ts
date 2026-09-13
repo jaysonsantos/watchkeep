@@ -1,4 +1,4 @@
-import type { EpisodeRow, MediaRow, PlayRow, PlayState, ProgressRow, Queryable, TargetKind } from "./db.ts";
+import type { EpisodeRow, MediaKind, MediaRow, PlayRow, PlayState, ProgressRow, Queryable, TargetKind, WatchlistRow } from "./db.ts";
 import type { ExternalIds } from "./plex/payload.ts";
 
 export interface MovieInput {
@@ -225,6 +225,10 @@ export class Library {
     return row?.count ?? 0;
   }
 
+  /**
+   * Insert a play. With `externalId`, a play that already exists for the same
+   * source and id is skipped and `null` is returned.
+   */
   async recordPlay(input: {
     kind: TargetKind;
     id: number;
@@ -232,13 +236,23 @@ export class Library {
     source: string;
     account?: string | null;
     player?: string | null;
-  }): Promise<PlayRow> {
-    const row = await this.one<PlayRow>(
-      `INSERT INTO plays (target_kind, target_id, watched_at, source, account, player)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-      [input.kind, input.id, input.watchedAt ?? this.now(), input.source, input.account ?? null, input.player ?? null],
+    externalId?: string | null;
+  }): Promise<PlayRow | null> {
+    return this.one<PlayRow>(
+      `INSERT INTO plays (target_kind, target_id, watched_at, source, account, player, external_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (source, external_id) WHERE external_id IS NOT NULL DO NOTHING
+       RETURNING *`,
+      [
+        input.kind,
+        input.id,
+        input.watchedAt ?? this.now(),
+        input.source,
+        input.account ?? null,
+        input.player ?? null,
+        input.externalId ?? null,
+      ],
     );
-    return row!;
   }
 
   async removePlays(kind: TargetKind, id: number): Promise<number> {
@@ -298,12 +312,40 @@ export class Library {
 
   // --- ratings -------------------------------------------------------------
 
-  async setRating(kind: "movie" | "show" | "episode", id: number, rating: number): Promise<void> {
+  async setRating(kind: "movie" | "show" | "episode", id: number, rating: number, ratedAt?: string): Promise<void> {
     await this.db.query(
       `INSERT INTO ratings (target_kind, target_id, rating, rated_at) VALUES ($1, $2, $3, $4)
        ON CONFLICT (target_kind, target_id) DO UPDATE SET rating = EXCLUDED.rating, rated_at = EXCLUDED.rated_at`,
-      [kind, id, rating, this.now()],
+      [kind, id, rating, ratedAt ?? this.now()],
     );
+  }
+
+  // --- watchlist and hidden -----------------------------------------------
+
+  async addToWatchlist(kind: MediaKind, id: number, listedAt?: string, rank: number | null = null): Promise<void> {
+    await this.db.query(
+      `INSERT INTO watchlist (target_kind, target_id, listed_at, rank) VALUES ($1, $2, $3, $4)
+       ON CONFLICT (target_kind, target_id) DO UPDATE SET rank = COALESCE(EXCLUDED.rank, watchlist.rank)`,
+      [kind, id, listedAt ?? this.now(), rank],
+    );
+  }
+
+  async removeFromWatchlist(kind: MediaKind, id: number): Promise<boolean> {
+    const result = await this.db.query("DELETE FROM watchlist WHERE target_kind = $1 AND target_id = $2", [kind, id]);
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async listWatchlist(): Promise<WatchlistRow[]> {
+    const { rows } = await this.db.query<WatchlistRow>("SELECT * FROM watchlist ORDER BY rank NULLS LAST, listed_at");
+    return rows;
+  }
+
+  async setHidden(id: number, hidden: boolean, at?: string): Promise<void> {
+    await this.db.query("UPDATE media SET hidden_at = $1, updated_at = $2 WHERE id = $3", [
+      hidden ? (at ?? this.now()) : null,
+      this.now(),
+      id,
+    ]);
   }
 
   async getRating(kind: "movie" | "show" | "episode", id: number): Promise<number | null> {

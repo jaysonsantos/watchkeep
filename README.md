@@ -11,6 +11,8 @@ you did not watch.
 - Playback positions per movie and episode, with a "watched" threshold for stop events.
 - Full episode lists from a TMDB catalog database, so unwatched episodes are visible.
 - Optional Plex library sync that imports items, watch counts, and resume positions.
+- Import of a Trakt data export: history, ratings, playback positions, watchlist, and hidden shows.
+- Watchlist for movies and shows.
 - Manual actions: mark a movie, an episode, or a whole show watched or unwatched.
 - Web UI with dashboard, movies, shows, history, and a webhook log.
 - PostgreSQL storage. No native modules.
@@ -81,6 +83,31 @@ Then either:
 The sync imports every movie and episode, marks items that Plex counts as
 watched, and copies resume positions.
 
+## Import your Trakt data
+
+1. On trakt.tv, open Settings, then Data, and request an export. Trakt sends a ZIP file.
+2. Run the import:
+
+```
+docker compose run --rm -v /path/to/trakt-export.zip:/export.zip:ro watchkeep trakt:import /export.zip
+```
+
+Add `--dry-run` to see the counts without a write.
+
+The import reads these files from the ZIP:
+
+| File | Result |
+|---|---|
+| `watched-history-*.json` | One play per record, with the Trakt history id. A second import adds no duplicate. |
+| `ratings-movies.json`, `ratings-shows.json`, `ratings-episodes-*.json` | Ratings. |
+| `watched-playback.json` | Resume positions. Needs a runtime from the catalog. |
+| `lists-watchlist.json` | The watchlist. |
+| `hidden-progress-watched.json` | Hidden shows. Hidden shows do not appear as unwatched. |
+| `_errors.json` | Reported in the summary. |
+
+Other files (collection, comments, likes, custom lists, notes, network, profile) are ignored.
+Plex guids from the export are stored, so later Plex webhooks match the same items.
+
 ## Configuration
 
 | Variable | Default | Meaning |
@@ -121,6 +148,9 @@ with authentication. Only the webhook route checks a token.
 | `POST` / `DELETE` | `/api/episodes/:id/watched` | Mark a known episode. |
 | `POST` / `DELETE` | `/api/shows/:id/seasons/:s/episodes/:e/watched` | Mark an episode by number. |
 | `POST` | `/api/sync` | Run a Plex library sync. |
+| `GET` | `/api/watchlist` | Watchlist with watched counts. |
+| `POST` / `DELETE` | `/api/movies/:id/watchlist`, `/api/shows/:id/watchlist` | Add to or remove from the watchlist. |
+| `POST` / `DELETE` | `/api/shows/:id/hidden` | Hide a show from the unwatched list, or unhide it. |
 | `GET` | `/api/webhooks` | The last 100 webhook events. |
 | `POST` | `/webhook/plex?token=` | Plex webhook endpoint. Accepts multipart or JSON. |
 

@@ -25,6 +25,7 @@ export interface MediaRow {
   duration_ms: number | null;
   summary: string | null;
   poster_path: string | null;
+  hidden_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -53,6 +54,14 @@ export interface PlayRow {
   source: string;
   account: string | null;
   player: string | null;
+  external_id: string | null;
+}
+
+export interface WatchlistRow {
+  target_kind: MediaKind;
+  target_id: number;
+  listed_at: string;
+  rank: number | null;
 }
 
 export interface ProgressRow {
@@ -156,6 +165,18 @@ export const MIGRATIONS: string[] = [
     payload TEXT NOT NULL
   );
   CREATE INDEX webhook_events_received_at ON webhook_events (received_at);
+  `,
+  `
+  ALTER TABLE plays ADD COLUMN external_id TEXT;
+  CREATE UNIQUE INDEX plays_source_external ON plays (source, external_id) WHERE external_id IS NOT NULL;
+  ALTER TABLE media ADD COLUMN hidden_at TEXT;
+  CREATE TABLE watchlist (
+    target_kind TEXT NOT NULL CHECK (target_kind IN ('movie', 'show')),
+    target_id BIGINT NOT NULL,
+    listed_at TEXT NOT NULL,
+    rank INTEGER,
+    PRIMARY KEY (target_kind, target_id)
+  );
   `,
 ];
 

@@ -104,6 +104,21 @@ export class Actions {
     });
   }
 
+  async setWatchlist(kind: "movie" | "show", id: number, listed: boolean): Promise<boolean> {
+    const media = await this.library.getMedia(id);
+    if (!media || media.kind !== kind) return false;
+    if (listed) await this.library.addToWatchlist(kind, id);
+    else await this.library.removeFromWatchlist(kind, id);
+    return true;
+  }
+
+  async setHidden(id: number, hidden: boolean): Promise<boolean> {
+    const media = await this.library.getMedia(id);
+    if (!media) return false;
+    await this.library.setHidden(id, hidden);
+    return true;
+  }
+
   removePlay(playId: number): Promise<boolean> {
     return this.library.removePlay(playId);
   }

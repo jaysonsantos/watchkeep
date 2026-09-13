@@ -26,7 +26,22 @@ if (command === "catalog:import") {
   const catalogPool = config.catalogDatabaseUrl ? createPool(config.catalogDatabaseUrl, 3) : null;
   const ctx = createContext({ pool, catalogPool, config });
 
-  if (command === "sync") {
+  if (command === "trakt:import") {
+    const { importTraktExport } = await import("./trakt/import.ts");
+    const args = process.argv.slice(3);
+    const dryRun = args.includes("--dry-run");
+    const source = args.find((arg) => !arg.startsWith("--"));
+    if (!source) {
+      console.error("usage: watchkeep trakt:import <trakt-export.zip> [--dry-run]");
+      process.exit(2);
+    }
+    const report = await importTraktExport(pool, ctx.catalog, source, {
+      dryRun,
+      log: (message) => console.log(`[trakt] ${message}`),
+    });
+    console.log(JSON.stringify(report));
+    await ctx.close();
+  } else if (command === "sync") {
     const report = await ctx.sync();
     console.log(JSON.stringify(report));
     await ctx.close();
@@ -49,7 +64,7 @@ if (command === "catalog:import") {
     process.on("SIGINT", shutdown);
     process.on("SIGTERM", shutdown);
   } else {
-    console.error(`unknown command: ${command}. Use "serve", "sync", or "catalog:import <file>".`);
+    console.error(`unknown command: ${command}. Use "serve", "sync", "catalog:import <file>", or "trakt:import <zip>".`);
     process.exit(2);
   }
 }

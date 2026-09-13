@@ -7,7 +7,7 @@ Watchkeep is a self-hosted watch tracker with Plex webhook scrobbling. Read
 
 | Path | Purpose |
 |---|---|
-| `src/main.ts` | Entry point. Commands: `serve`, `sync`, `catalog:import <file>`. |
+| `src/main.ts` | Entry point. Commands: `serve`, `sync`, `catalog:import <file>`, `trakt:import <zip>`. |
 | `src/app.ts` | Builds the app context (pools, catalog, services) and the Hono app. |
 | `src/db.ts` | Postgres pool, migrations (`MIGRATIONS` array), `transaction()`. |
 | `src/library.ts` | Writes and single-row reads for media, episodes, plays, progress, ratings. |
@@ -17,6 +17,7 @@ Watchkeep is a self-hosted watch tracker with Plex webhook scrobbling. Read
 | `src/actions.ts` | Manual watched and unwatched changes. |
 | `src/catalog/` | Read-only TMDB catalog client and the SQLite importer. |
 | `src/plex/` | Webhook payload parser and library sync client. |
+| `src/trakt/` | Trakt export importer and a minimal ZIP reader. |
 | `src/routes/`, `src/ui/` | HTTP routes and server-rendered HTML. |
 | `catalog/schema.sql` | TMDB tables for the second database. |
 | `test/` | `node:test` suites. `helpers.ts` creates fresh databases per test. |

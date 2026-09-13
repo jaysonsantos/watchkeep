@@ -1,4 +1,4 @@
-import type { Catalog } from "./catalog/catalog.ts";
+import type { Catalog, CatalogEpisode, CatalogMovie, CatalogShow } from "./catalog/catalog.ts";
 import type { Config } from "./config.ts";
 import { transaction, type Pool, type Queryable, type TargetKind } from "./db.ts";
 import { Library, type Clock, systemClock } from "./library.ts";
@@ -30,14 +30,8 @@ function withTmdb(ids: ExternalIds, tmdbId: number | null, imdb?: string | null,
   };
 }
 
-/** Fill in TMDB ids, posters, and runtimes from the catalog when it knows the item. */
-export async function enrichMovie(catalog: Catalog | null, media: MovieRef): Promise<MovieRef> {
-  if (!catalog) return media;
-  const tmdbId = Number(media.ids.tmdb);
-  const match =
-    (Number.isInteger(tmdbId) && tmdbId > 0 ? await catalog.movieByTmdbId(tmdbId) : null) ??
-    (media.ids.imdb ? await catalog.movieByImdbId(media.ids.imdb) : null) ??
-    (await catalog.movieByTitle(media.title, media.year));
+/** Merge catalog data into a movie reference. Plex values win, the catalog fills gaps. */
+export function movieWithCatalog(media: MovieRef, match: CatalogMovie | null): MovieRef {
   if (!match) return media;
   return {
     ...media,
@@ -49,33 +43,61 @@ export async function enrichMovie(catalog: Catalog | null, media: MovieRef): Pro
   };
 }
 
-export async function enrichEpisode(catalog: Catalog | null, media: EpisodeRef): Promise<EpisodeRef> {
-  if (!catalog) return media;
-  const showTmdb = Number(media.show.ids.tmdb);
-  const episodeTmdb = Number(media.ids.tmdb);
-  const viaEpisode = Number.isInteger(episodeTmdb) && episodeTmdb > 0 ? await catalog.showForEpisode(episodeTmdb) : null;
-  const show =
-    viaEpisode?.show ??
-    (Number.isInteger(showTmdb) && showTmdb > 0 ? await catalog.showByTmdbId(showTmdb) : null) ??
-    (media.show.ids.tvdb ? await catalog.showByTvdbId(media.show.ids.tvdb) : null) ??
-    (media.show.ids.imdb ? await catalog.showByImdbId(media.show.ids.imdb) : null) ??
-    (await catalog.showByName(media.show.title, media.show.year));
-  if (!show) return media;
-  const episode = await catalog.episode(show.tmdbId, media.season, media.number);
+export function showWithCatalog(show: ShowRef, match: CatalogShow | null): ShowRef {
+  if (!match) return show;
+  return {
+    title: show.title,
+    year: show.year ?? match.year,
+    ids: withTmdb(show.ids, match.tmdbId, match.imdbId, match.tvdbId),
+    posterPath: match.posterPath,
+    summary: match.overview,
+  };
+}
+
+export function episodeWithCatalog(media: EpisodeRef, show: ShowRef, episode: CatalogEpisode | null): EpisodeRef {
   return {
     ...media,
     title: media.title ?? episode?.title ?? null,
     ids: withTmdb(media.ids, episode?.tmdbId ?? null),
     durationMs: media.durationMs ?? (episode?.runtimeMin ? episode.runtimeMin * 60_000 : null),
     airedAt: media.airedAt ?? episode?.airDate ?? null,
-    show: {
-      title: media.show.title,
-      year: media.show.year ?? show.year,
-      ids: withTmdb(media.show.ids, show.tmdbId, show.imdbId, show.tvdbId),
-      posterPath: show.posterPath,
-      summary: show.overview,
-    },
+    show,
   };
+}
+
+/** Fill in TMDB ids, posters, and runtimes from the catalog when it knows the item. */
+export async function enrichMovie(catalog: Catalog | null, media: MovieRef): Promise<MovieRef> {
+  if (!catalog) return media;
+  const tmdbId = Number(media.ids.tmdb);
+  const match =
+    (Number.isInteger(tmdbId) && tmdbId > 0 ? await catalog.movieByTmdbId(tmdbId) : null) ??
+    (media.ids.imdb ? await catalog.movieByImdbId(media.ids.imdb) : null) ??
+    (await catalog.movieByTitle(media.title, media.year));
+  return movieWithCatalog(media, match);
+}
+
+export type ShowRef = EpisodeRef["show"];
+
+/** Find the catalog show for a show reference, or for the episode TMDB id when given. */
+export async function enrichShow(catalog: Catalog | null, show: ShowRef, episodeTmdbId: string | null = null): Promise<ShowRef> {
+  if (!catalog) return show;
+  const showTmdb = Number(show.ids.tmdb);
+  const episodeTmdb = Number(episodeTmdbId);
+  let match: CatalogShow | null = null;
+  if (Number.isInteger(showTmdb) && showTmdb > 0) match = await catalog.showByTmdbId(showTmdb);
+  if (!match && Number.isInteger(episodeTmdb) && episodeTmdb > 0) match = (await catalog.showForEpisode(episodeTmdb))?.show ?? null;
+  if (!match && show.ids.tvdb) match = await catalog.showByTvdbId(show.ids.tvdb);
+  if (!match && show.ids.imdb) match = await catalog.showByImdbId(show.ids.imdb);
+  if (!match) match = await catalog.showByName(show.title, show.year);
+  return showWithCatalog(show, match);
+}
+
+export async function enrichEpisode(catalog: Catalog | null, media: EpisodeRef): Promise<EpisodeRef> {
+  if (!catalog) return media;
+  const show = await enrichShow(catalog, media.show, media.ids.tmdb);
+  const showTmdb = Number(show.ids.tmdb);
+  if (!Number.isInteger(showTmdb) || showTmdb <= 0) return { ...media, show };
+  return episodeWithCatalog(media, show, await catalog.episode(showTmdb, media.season, media.number));
 }
 
 /** Create or update the movie, show, and episode rows for a media reference. */

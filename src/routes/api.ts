@@ -87,6 +87,30 @@ export function apiRoutes(ctx: AppContext): Hono {
     return c.json({ ok: true, plays_removed: changed });
   });
 
+  app.get("/watchlist", async (c) => c.json(await ctx.queries.watchlist()));
+  for (const [kind, prefix] of [["movie", "/movies"], ["show", "/shows"]] as const) {
+    app.post(`${prefix}/:id/watchlist`, async (c) => {
+      const id = idOf(c.req.param("id"));
+      if (!id || !(await ctx.actions.setWatchlist(kind, id, true))) return c.json({ error: "not found" }, 404);
+      return c.json({ ok: true });
+    });
+    app.delete(`${prefix}/:id/watchlist`, async (c) => {
+      const id = idOf(c.req.param("id"));
+      if (!id || !(await ctx.actions.setWatchlist(kind, id, false))) return c.json({ error: "not found" }, 404);
+      return c.json({ ok: true });
+    });
+  }
+  app.post("/shows/:id/hidden", async (c) => {
+    const id = idOf(c.req.param("id"));
+    if (!id || !(await ctx.actions.setHidden(id, true))) return c.json({ error: "not found" }, 404);
+    return c.json({ ok: true });
+  });
+  app.delete("/shows/:id/hidden", async (c) => {
+    const id = idOf(c.req.param("id"));
+    if (!id || !(await ctx.actions.setHidden(id, false))) return c.json({ error: "not found" }, 404);
+    return c.json({ ok: true });
+  });
+
   app.delete("/history/:id", async (c) => {
     const id = idOf(c.req.param("id"));
     if (!id || !(await ctx.actions.removePlay(id))) return c.json({ error: "not found" }, 404);
