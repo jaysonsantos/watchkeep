@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import type { AppContext } from "../app.ts";
 import type { TargetKind } from "../db.ts";
 import type { WatchFilter } from "../queries.ts";
-import { renderDashboard, renderHistory, renderMovies, renderShow, renderShows, renderWatchlist, renderWebhooks } from "../ui/render.ts";
+import { renderAdd, renderDashboard, renderHistory, renderMovies, renderShow, renderShows, renderWatchlist, renderWebhooks } from "../ui/render.ts";
 
 function filterOf(value: string | undefined): WatchFilter {
   return value === "watched" || value === "unwatched" ? value : "all";
@@ -52,6 +52,42 @@ export function uiRoutes(ctx: AppContext): Hono {
   });
 
   app.get("/watchlist", async (c) => c.html(renderWatchlist({ images, items: await ctx.queries.watchlist() })));
+
+  app.get("/add", async (c) => {
+    const query = (c.req.query("q") ?? "").trim();
+    const catalog = ctx.catalog;
+    const movies = catalog && query.length >= 2 ? await catalog.searchMovies(query) : [];
+    const shows = catalog && query.length >= 2 ? await catalog.searchShows(query) : [];
+    const localMovies = await ctx.queries.localByTmdb("movie", movies.map((movie) => movie.tmdbId));
+    const localShows = await ctx.queries.localByTmdb("show", shows.map((show) => show.tmdbId));
+    return c.html(
+      renderAdd({
+        images,
+        query,
+        catalogConfigured: catalog !== null,
+        movies: movies.map((movie) => ({ ...movie, localId: localMovies.get(movie.tmdbId) ?? null })),
+        shows: shows.map((show) => ({ ...show, localId: localShows.get(show.tmdbId) ?? null })),
+        error: c.req.query("error"),
+      }),
+    );
+  });
+
+  /** Add form: kind, tmdb_id or title, year, and an optional watchlist flag. */
+  app.post("/add", async (c) => {
+    const form = await c.req.parseBody();
+    const field = (name: string) => String(form[name] ?? "").trim();
+    const kind = field("kind") === "show" ? "show" : "movie";
+    const row = await ctx.actions.addMedia({
+      kind,
+      tmdbId: Number(field("tmdb_id")) || null,
+      title: field("title") || null,
+      year: Number(field("year")) || null,
+      watchlist: field("watchlist") === "1",
+    });
+    if (!row) return c.redirect(`/add?q=${encodeURIComponent(field("q"))}&error=title`, 303);
+    if (field("watchlist") === "1") return c.redirect("/watchlist", 303);
+    return c.redirect(kind === "show" ? `/shows/${row.id}` : "/movies?status=unwatched", 303);
+  });
 
   app.get("/history", async (c) => {
     const pageSize = 50;

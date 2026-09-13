@@ -1,6 +1,8 @@
 import type { Catalog } from "./catalog/catalog.ts";
 import { transaction, type Pool, type TargetKind } from "./db.ts";
+import type { MediaRow } from "./db.ts";
 import { Library, type Clock, systemClock, type EpisodeInput } from "./library.ts";
+import { enrichMovie, enrichShow } from "./scrobble.ts";
 
 /** Manual changes that the UI and the JSON API both expose. */
 export class Actions {
@@ -102,6 +104,36 @@ export class Actions {
       }
       return changed;
     });
+  }
+
+  /**
+   * Add a movie or show by hand. With a TMDB id and a catalog, the catalog
+   * supplies the title, year, and poster. Otherwise the title is required.
+   * An item that already exists is returned, not duplicated.
+   */
+  async addMedia(input: {
+    kind: "movie" | "show";
+    tmdbId?: number | null;
+    title?: string | null;
+    year?: number | null;
+    watchlist?: boolean;
+  }): Promise<MediaRow | null> {
+    const tmdb = input.tmdbId && input.tmdbId > 0 ? String(input.tmdbId) : null;
+    let title = input.title?.trim() || null;
+    if (!title && tmdb && this.catalog) {
+      const match = input.kind === "movie" ? await this.catalog.movieByTmdbId(Number(tmdb)) : await this.catalog.showByTmdbId(Number(tmdb));
+      title = match?.title ?? null;
+    }
+    if (!title) return null;
+    const ids = { plexGuid: null, imdb: null, tmdb, tvdb: null };
+    const row =
+      input.kind === "movie"
+        ? await this.library.upsertMovie(
+            await enrichMovie(this.catalog, { type: "movie", title, year: input.year ?? null, ids, durationMs: null, summary: null }),
+          )
+        : await this.library.upsertShow(await enrichShow(this.catalog, { title, year: input.year ?? null, ids }));
+    if (input.watchlist) await this.library.addToWatchlist(input.kind, row.id);
+    return row;
   }
 
   async setWatchlist(kind: "movie" | "show", id: number, listed: boolean): Promise<boolean> {

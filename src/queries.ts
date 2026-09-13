@@ -214,6 +214,18 @@ export class Queries {
     return rows.length > 0;
   }
 
+  /** Local ids of media rows that carry one of the given TMDB ids. */
+  async localByTmdb(kind: "movie" | "show", tmdbIds: number[]): Promise<Map<number, number>> {
+    const result = new Map<number, number>();
+    if (tmdbIds.length === 0) return result;
+    const { rows } = await this.db.query<{ id: number; tmdb_id: number }>(
+      "SELECT id, tmdb_id FROM media WHERE kind = $1 AND tmdb_id = ANY($2::bigint[])",
+      [kind, tmdbIds],
+    );
+    for (const row of rows) result.set(row.tmdb_id, row.id);
+    return result;
+  }
+
   async recentWebhooks(limit = 50): Promise<WebhookLogEntry[]> {
     const { rows } = await this.db.query<WebhookLogEntry>(
       `SELECT id, received_at, event, account, player, media_type, title, outcome

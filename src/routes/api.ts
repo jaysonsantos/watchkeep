@@ -87,6 +87,30 @@ export function apiRoutes(ctx: AppContext): Hono {
     return c.json({ ok: true, plays_removed: changed });
   });
 
+  app.get("/search", async (c) => {
+    const query = (c.req.query("q") ?? "").trim();
+    if (!ctx.catalog) return c.json({ error: "No catalog configured. Set WATCHKEEP_CATALOG_DATABASE_URL." }, 400);
+    if (query.length < 2) return c.json({ movies: [], shows: [] });
+    const [movies, shows] = await Promise.all([ctx.catalog.searchMovies(query), ctx.catalog.searchShows(query)]);
+    return c.json({ movies, shows });
+  });
+
+  /** Body: { tmdb_id?, title?, year?, watchlist? }. Returns the movie or show, created or existing. */
+  for (const [kind, prefix] of [["movie", "/movies"], ["show", "/shows"]] as const) {
+    app.post(prefix, async (c) => {
+      const body = (await c.req.json().catch(() => ({}))) as { tmdb_id?: number; title?: string; year?: number; watchlist?: boolean };
+      const row = await ctx.actions.addMedia({
+        kind,
+        tmdbId: Number.isInteger(body.tmdb_id) ? Number(body.tmdb_id) : null,
+        title: typeof body.title === "string" ? body.title : null,
+        year: Number.isInteger(body.year) ? Number(body.year) : null,
+        watchlist: body.watchlist === true,
+      });
+      if (!row) return c.json({ error: "title is required, or a tmdb_id that the catalog knows" }, 400);
+      return c.json(row, 201);
+    });
+  }
+
   app.get("/watchlist", async (c) => c.json(await ctx.queries.watchlist()));
   for (const [kind, prefix] of [["movie", "/movies"], ["show", "/shows"]] as const) {
     app.post(`${prefix}/:id/watchlist`, async (c) => {

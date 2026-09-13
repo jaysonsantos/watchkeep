@@ -13,6 +13,7 @@ you did not watch.
 - Optional Plex library sync that imports items, watch counts, and resume positions.
 - Import of a Trakt data export: history, ratings, playback positions, watchlist, and hidden shows.
 - Watchlist for movies and shows.
+- Add page: search the catalog by title and add a movie or show to the library or the watchlist.
 - Manual actions: mark a movie, an episode, or a whole show watched or unwatched.
 - Web UI with dashboard, movies, shows, history, and a webhook log.
 - PostgreSQL storage. No native modules.
@@ -148,6 +149,8 @@ with authentication. Only the webhook route checks a token.
 | `POST` / `DELETE` | `/api/episodes/:id/watched` | Mark a known episode. |
 | `POST` / `DELETE` | `/api/shows/:id/seasons/:s/episodes/:e/watched` | Mark an episode by number. |
 | `POST` | `/api/sync` | Run a Plex library sync. |
+| `GET` | `/api/search?q=` | Catalog search by title. Needs the catalog. |
+| `POST` | `/api/movies`, `/api/shows` | Add an item. Body: `tmdb_id` or `title`, optional `year` and `watchlist`. |
 | `GET` | `/api/watchlist` | Watchlist with watched counts. |
 | `POST` / `DELETE` | `/api/movies/:id/watchlist`, `/api/shows/:id/watchlist` | Add to or remove from the watchlist. |
 | `POST` / `DELETE` | `/api/shows/:id/hidden` | Hide a show from the unwatched list, or unhide it. |

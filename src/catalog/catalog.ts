@@ -165,6 +165,18 @@ export class Catalog {
     return result;
   }
 
+  /** Title search for the add page. Matches any part of a title in either language. */
+  async searchMovies(query: string, limit = 20): Promise<CatalogMovie[]> {
+    const { rows } = await this.db.query<MovieRow>(
+      `SELECT ${MOVIE_COLUMNS} FROM tmdb_movie
+       WHERE title_en ILIKE '%' || $1 || '%' OR title_pt ILIKE '%' || $1 || '%' OR original_title ILIKE '%' || $1 || '%'
+       ORDER BY (lower(title_en) = lower($1) OR lower(title_pt) = lower($1)) DESC, vote_count DESC NULLS LAST, release_date DESC NULLS LAST
+       LIMIT $2`,
+      [query, limit],
+    );
+    return rows.map((row) => this.movie(row));
+  }
+
   // --- shows ---------------------------------------------------------------
 
   async showByTmdbId(id: number): Promise<CatalogShow | null> {
@@ -218,6 +230,17 @@ export class Catalog {
       [name, year, String(year)],
     );
     return rows[0] ? this.show(rows[0]) : null;
+  }
+
+  async searchShows(query: string, limit = 20): Promise<CatalogShow[]> {
+    const { rows } = await this.db.query<ShowRow>(
+      `SELECT ${SHOW_COLUMNS} FROM tmdb_show
+       WHERE name_en ILIKE '%' || $1 || '%' OR name_pt ILIKE '%' || $1 || '%' OR original_name ILIKE '%' || $1 || '%'
+       ORDER BY (lower(name_en) = lower($1) OR lower(name_pt) = lower($1)) DESC, vote_count DESC NULLS LAST, first_air_date DESC NULLS LAST
+       LIMIT $2`,
+      [query, limit],
+    );
+    return rows.map((row) => this.show(row));
   }
 
   // --- episodes ------------------------------------------------------------

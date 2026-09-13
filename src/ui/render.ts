@@ -1,3 +1,4 @@
+import type { CatalogMovie, CatalogShow } from "../catalog/catalog.ts";
 import type { HistoryEntry, MovieView, ProgressView, Stats, WatchFilter, WatchlistItem } from "../queries.ts";
 import type { MergedEpisode, ShowListItem } from "../views.ts";
 
@@ -42,6 +43,11 @@ a { color: inherit; }
 .poster.big { width: 92px; height: 138px; float: left; margin: 0 1rem .5rem 0; }
 .title-cell { display: flex; align-items: center; gap: .2rem; }
 .future { opacity: .6; }
+.add-form { display: grid; gap: .5rem; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); align-items: end; max-width: 720px; }
+.add-form label { display: grid; gap: .2rem; font-size: .85rem; color: var(--muted); }
+.add-form input, .add-form select { font: inherit; padding: .35rem .5rem; border-radius: 6px; border: 1px solid var(--line); background: var(--card); color: var(--fg); }
+.search { display: flex; gap: .5rem; max-width: 520px; margin-bottom: 1rem; }
+.search input { flex: 1; font: inherit; padding: .45rem .6rem; border-radius: 6px; border: 1px solid var(--line); background: var(--card); color: var(--fg); }
 .pager { display: flex; gap: 1rem; margin-top: 1rem; }
 code { font-size: .85em; }
 @media (max-width: 640px) { th:nth-child(n+4), td:nth-child(n+4) { display: none; } }
@@ -87,6 +93,7 @@ function layout(title: string, active: string, body: Raw): string {
     ["/movies", "Movies"],
     ["/shows", "Shows"],
     ["/watchlist", "Watchlist"],
+    ["/add", "Add"],
     ["/history", "History"],
     ["/webhooks", "Webhooks"],
   ];
@@ -363,6 +370,58 @@ ${input.items.map(
 </tbody></table>`)
 }`;
   return layout("Watchlist", "/watchlist", body);
+}
+
+type AddResult<T> = T & { localId: number | null };
+
+function addForms(kind: "movie" | "show", tmdbId: number, query: string): Raw {
+  const hidden = html`<input type="hidden" name="kind" value="${kind}"><input type="hidden" name="tmdb_id" value="${tmdbId}"><input type="hidden" name="q" value="${query}">`;
+  return raw(html`<form class="inline" method="post" action="/add">${hidden}<input type="hidden" name="watchlist" value="1"><button type="submit" class="primary">+ Watchlist</button></form>
+  <form class="inline" method="post" action="/add">${hidden}<button type="submit">Add to library</button></form>`);
+}
+
+export function renderAdd(input: {
+  images: string;
+  query: string;
+  catalogConfigured: boolean;
+  movies: AddResult<CatalogMovie>[];
+  shows: AddResult<CatalogShow>[];
+  error?: string;
+}): string {
+  const results = (kind: "movie" | "show", items: Array<AddResult<CatalogMovie> | AddResult<CatalogShow>>) =>
+    items.length === 0
+      ? ""
+      : html`<h2>${kind === "movie" ? "Movies" : "Shows"}</h2>
+<table><thead><tr><th>Title</th><th>Year</th><th></th></tr></thead><tbody>
+${items.map(
+  (item) => html`<tr>
+  <td><span class="title-cell">${poster(input.images, item.posterPath)}<span>${
+    item.localId !== null && kind === "show" ? html`<a href="/shows/${item.localId}">${item.title}</a>` : item.title
+  }${item.localId !== null ? raw(' <span class="badge">in library</span>') : ""}</span></span></td>
+  <td class="muted">${item.year ?? ""}</td>
+  <td>${addForms(kind, item.tmdbId, input.query)}</td>
+</tr>`,
+)}
+</tbody></table>`;
+  const body = html`<h1>Add a movie or show</h1>
+${
+  input.catalogConfigured
+    ? html`<form class="search" method="get" action="/add"><input type="search" name="q" placeholder="Search the catalog by title" value="${input.query}" autofocus><button type="submit" class="primary">Search</button></form>
+${input.query.length >= 2 && input.movies.length === 0 && input.shows.length === 0 ? raw('<div class="empty">No catalog match. Use the manual form below.</div>') : ""}
+${results("movie", input.movies)}${results("show", input.shows)}`
+    : raw('<p class="muted">No TMDB catalog is configured, so there is no search. Use the manual form.</p>')
+}
+<h2>Add by hand</h2>
+${input.error ? raw('<p class="muted">A title is required.</p>') : ""}
+<form class="add-form" method="post" action="/add">
+  <label>Type <select name="kind"><option value="movie">Movie</option><option value="show">Show</option></select></label>
+  <label>Title <input name="title" required placeholder="Title"></label>
+  <label>Year <input name="year" type="number" min="1870" max="2100" placeholder="2024"></label>
+  <label>TMDB id <input name="tmdb_id" type="number" min="1" placeholder="optional"></label>
+  <label><span><input type="checkbox" name="watchlist" value="1" checked> Add to watchlist</span></label>
+  <button type="submit" class="primary">Add</button>
+</form>`;
+  return layout("Add", "/add", body);
 }
 
 export function renderWebhooks(input: {
