@@ -147,6 +147,9 @@ npm run build
 npm run dev         # needs WATCHKEEP_DATABASE_URL
 ```
 
+For local development with direnv, copy `.envrc.example` to `.envrc`, set the
+two database URLs, and run `direnv allow`. `.envrc` is ignored by git.
+
 Set `WATCHKEEP_TEST_DATABASE_URL` to run the tests against an existing Postgres
 server instead of Docker. The tests create and drop their own databases.
 

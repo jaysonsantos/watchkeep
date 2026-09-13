@@ -1,0 +1,8 @@
+# Copy to .envrc, then run `direnv allow`.
+export WATCHKEEP_DATABASE_URL=postgres://user:password@host:5432/watchkeep
+export WATCHKEEP_CATALOG_DATABASE_URL=postgres://user:password@host:5432/catalog
+export WATCHKEEP_WEBHOOK_TOKEN=dev
+export WATCHKEEP_PORT=8484
+# Optional: run the tests against this server instead of a Docker container.
+# The tests create and drop databases named wk_<random>.
+# export WATCHKEEP_TEST_DATABASE_URL=postgres://user:password@host:5432/postgres
