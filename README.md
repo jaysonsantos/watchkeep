@@ -17,7 +17,7 @@ you did not watch.
 - Watchlist for movies and shows.
 - Add page: search the catalog by title and add a movie or show to the library or the watchlist.
 - Manual actions: mark a movie, an episode, or a whole show watched or unwatched.
-- Web UI with dashboard, movies, shows, history, and a webhook log.
+- SvelteKit web UI with dashboard, movies, shows, history, and a webhook log. The buttons also work without JavaScript.
 - PostgreSQL storage. No native modules.
 
 ## Architecture
@@ -128,6 +128,18 @@ Plex guids from the export are stored, so later Plex webhooks match the same ite
 | `WATCHKEEP_WEBHOOK_RETENTION_DAYS` | `30` | Days to keep raw webhook events. `0` keeps them. |
 | `WATCHKEEP_IMAGE_BASE_URL` | `https://image.tmdb.org/t/p/` | Base URL for posters. |
 | `WATCHKEEP_HOST` / `WATCHKEEP_PORT` | `0.0.0.0` / `8484` | Listen address. |
+| `WATCHKEEP_HTTP_ORIGIN` | empty | Public URL, for example `https://watchkeep.example.com`. Set it behind a reverse proxy that terminates TLS. |
+
+The web server is the SvelteKit Node adapter with the `WATCHKEEP_HTTP_` prefix.
+It also reads `WATCHKEEP_HTTP_PROTOCOL_HEADER`, `WATCHKEEP_HTTP_HOST_HEADER`, and
+the other [adapter-node variables](https://svelte.dev/docs/kit/adapter-node#Environment-variables).
+Do not set other variables that start with `WATCHKEEP_HTTP_`. The server does not start with an unknown one.
+
+The UI buttons are forms. Watchkeep rejects a form post when the host in the
+`Origin` header of the browser is not the host of the request. A reverse proxy
+that changes the `Host` header makes the buttons return "403 Cross-site form
+submissions are forbidden". In that case, set `WATCHKEEP_HTTP_ORIGIN`, or set
+`WATCHKEEP_HTTP_HOST_HEADER=x-forwarded-host`.
 
 ## Security
 
@@ -193,11 +205,21 @@ Requirements: Node 24, pnpm, and Docker (for the test database).
 
 ```
 pnpm install
-pnpm typecheck
+pnpm typecheck      # tsc for the server code, svelte-check for the UI
 pnpm test           # starts a throwaway Postgres container
-pnpm build
-pnpm dev            # needs WATCHKEEP_DATABASE_URL
+pnpm build          # SvelteKit server in build/, CLI in dist/
+pnpm dev            # Vite dev server on port 5173, needs WATCHKEEP_DATABASE_URL
+pnpm start          # runs the build on WATCHKEEP_PORT (8484)
 ```
+
+One Node process serves everything. `src/hooks.server.ts` sends `/api`,
+`/webhook`, and `/healthz` to the Hono app and all other paths to SvelteKit.
+The CLI commands (`sync`, `catalog:import`, `trakt:import`) run from
+`dist/server/main.js`.
+
+`pnpm typecheck` needs TypeScript 6 and TypeScript 7. `tsc` is TypeScript 7
+(package `@typescript/native`). svelte-check uses TypeScript 6 (package
+`typescript`).
 
 For local development with direnv, copy `.envrc.example` to `.envrc`, set the
 two database URLs, and run `direnv allow`. `.envrc` is ignored by git.

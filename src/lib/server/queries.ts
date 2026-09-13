@@ -1,19 +1,7 @@
+import type { SortOrder, WatchFilter } from "../lists.ts";
 import type { EpisodeRow, MediaRow, PlayRow, ProgressRow, Queryable } from "./db.ts";
 
-export type WatchFilter = "all" | "watched" | "unwatched";
-
-/** List order for movies and shows. `recent` puts the last watched first, then the newest additions. */
-export type SortOrder = "recent" | "title" | "year" | "added";
-export const SORT_ORDERS: ReadonlyArray<[SortOrder, string]> = [
-  ["recent", "Last watched"],
-  ["title", "Title"],
-  ["year", "Year"],
-  ["added", "Recently added"],
-];
-
-export function sortOf(value: string | undefined): SortOrder {
-  return SORT_ORDERS.some(([sort]) => sort === value) ? (value as SortOrder) : "recent";
-}
+export type { SortOrder, WatchFilter };
 
 export interface MovieView extends MediaRow {
   play_count: number;

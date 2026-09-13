@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
+import { listUrl } from "../src/lib/lists.ts";
+import { moviesPage, showsPage } from "../src/lib/server/pages.ts";
 import { testApp, type TestContext } from "./helpers.ts";
 
 let ctx: TestContext | undefined;
@@ -55,20 +57,22 @@ describe("movie and show lists", () => {
     assert.deepEqual(((await response.json()) as Array<{ title: string }>).map((show) => show.title), ["Severance"]);
   });
 
-  it("renders the sort select and keeps the state in page links", async () => {
+  it("returns one page of the list and keeps the state in page links", async () => {
     const built = await testApp();
     ctx = built.ctx;
     for (let index = 0; index < 61; index += 1) await ctx.actions.addMedia({ kind: "movie", title: `Movie ${index}` });
 
-    const first = await (await built.app.request("/movies?sort=title&q=Movie")).text();
-    assert.match(first, /<option value="title" selected>Title<\/option>/);
-    assert.match(first, /Page 1 of 2/);
-    assert.ok(first.includes('href="/movies?q=Movie&amp;sort=title&amp;page=2"'));
+    const first = await moviesPage(ctx, new URLSearchParams("sort=title&q=Movie"));
+    assert.deepEqual(first.list, { filter: "all", search: "Movie", sort: "title", page: 1, pageSize: 60 });
+    assert.equal(first.total, 61);
+    assert.equal(first.movies.length, 60);
+    assert.equal(listUrl("/movies", first.list, 2), "/movies?q=Movie&sort=title&page=2");
+    assert.equal(listUrl("/movies", { ...first.list, search: "a b", sort: "recent" }, 1, "watched"), "/movies?status=watched&q=a%20b");
 
-    const last = await (await built.app.request("/movies?sort=title&q=Movie&page=99")).text();
-    assert.match(last, /Page 2 of 2/);
-    assert.equal((last.match(/class="card"/g) ?? []).length, 1);
+    const last = await moviesPage(ctx, new URLSearchParams("sort=title&q=Movie&page=99"));
+    assert.equal(last.list.page, 2, "a page past the end shows the last page");
+    assert.equal(last.movies.length, 1);
 
-    assert.equal((await built.app.request("/shows?sort=year&page=2")).status, 200);
+    assert.equal((await showsPage(ctx, new URLSearchParams("sort=year&page=2"))).list.page, 1);
   });
 });

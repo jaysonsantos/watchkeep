@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
-import { PlexClient } from "../src/plex/sync.ts";
+import { PlexClient } from "../src/lib/server/plex/sync.ts";
 import { testContext, type TestContext } from "./helpers.ts";
 
 let ctx: TestContext | undefined;

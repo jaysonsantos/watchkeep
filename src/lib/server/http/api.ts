@@ -1,11 +1,7 @@
 import { Hono } from "hono";
 import type { AppContext } from "../app.ts";
 import type { TargetKind } from "../db.ts";
-import { sortOf, type WatchFilter } from "../queries.ts";
-
-function filterOf(value: string | undefined): WatchFilter {
-  return value === "watched" || value === "unwatched" ? value : "all";
-}
+import { filterOf, sortOf } from "../../lists.ts";
 
 /** Optional `limit` (1 to 500) and `offset` for list routes. Without `limit`, the list is complete. */
 function windowOf(limit: string | undefined, offset: string | undefined): { limit: number | null; offset: number } {

@@ -4,8 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it } from "node:test";
 import { deflateRawSync } from "node:zlib";
-import { importTraktExport, sectionOf } from "../src/trakt/import.ts";
-import { readZip } from "../src/trakt/zip.ts";
+import { showPage, watchlistPage } from "../src/lib/server/pages.ts";
+import { importTraktExport, sectionOf } from "../src/lib/server/trakt/import.ts";
+import { readZip } from "../src/lib/server/trakt/zip.ts";
 import { testApp, testContext, type TestContext } from "./helpers.ts";
 
 /** Build a small ZIP in memory. Even entries are stored, odd entries deflated. */
@@ -237,10 +238,9 @@ describe("watchlist and hidden API", () => {
     assert.equal((await built.app.request(`/api/shows/${show.id}/watchlist`, { method: "DELETE" })).status, 200);
     assert.equal((await ctx.queries.watchlist()).length, 1);
     assert.equal((await built.app.request(`/api/movies/${show.id}/watchlist`, { method: "POST" })).status, 404, "a show is not a movie");
-    const page = await (await built.app.request("/watchlist")).text();
-    assert.match(page, /Collateral/);
-    const showPage = await (await built.app.request(`/shows/${show.id}`)).text();
-    assert.match(showPage, /Add to watchlist/);
-    assert.match(showPage, /Hide from unwatched/);
+    assert.ok((await watchlistPage(ctx)).items.some((item) => item.title === "Collateral"));
+    const detail = await showPage(ctx, show.id);
+    assert.equal(detail?.onWatchlist, false);
+    assert.equal(detail?.show.hidden_at, null);
   });
 });

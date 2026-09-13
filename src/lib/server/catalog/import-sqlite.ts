@@ -36,9 +36,18 @@ export interface ImportReport {
 }
 
 export function catalogSchemaSql(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  // Works from `src/catalog` (dev) and from `dist/catalog` (build): both sit two levels below the repo root.
-  return readFileSync(join(here, "..", "..", "catalog", "schema.sql"), "utf8");
+  // This file sits at different depths in `src/lib/server/catalog` (dev) and `dist/server/catalog` (build),
+  // so search upward for `catalog/schema.sql`.
+  let dir = dirname(fileURLToPath(import.meta.url));
+  for (;;) {
+    try {
+      return readFileSync(join(dir, "catalog", "schema.sql"), "utf8");
+    } catch {
+      const parent = dirname(dir);
+      if (parent === dir) throw new Error("catalog/schema.sql not found");
+      dir = parent;
+    }
+  }
 }
 
 export async function ensureCatalogSchema(pool: Pool): Promise<void> {

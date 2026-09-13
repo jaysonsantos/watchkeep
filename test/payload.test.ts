@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { parseIds, parsePlexPayload } from "../src/plex/payload.ts";
+import { parseIds, parsePlexPayload } from "../src/lib/server/plex/payload.ts";
 import { episodePayload, moviePayload } from "./helpers.ts";
 
 describe("parseIds", () => {

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Watchkeep">
+  <defs>
+    <linearGradient id="wk-g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1f9a6a"/>
+      <stop offset="1" stop-color="#0f5f44"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="15" fill="url(#wk-g)"/>
+  <!-- logbook: spine, cover, ribbon bookmark, check -->
+  <rect x="15" y="13" width="7" height="38" rx="2.5" fill="#ffffff" fill-opacity=".55"/>
+  <rect x="20" y="13" width="29" height="38" rx="4" fill="#ffffff"/>
+  <path d="M38 13v15l3.5-3 3.5 3V13z" fill="#0f5f44"/>
+  <path d="M27 24h7" stroke="#0f5f44" stroke-opacity=".35" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M26.5 38.5l5 5 9-10.5" fill="none" stroke="#0f5f44" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

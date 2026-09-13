@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
-import { parsePlexPayload, type PlexEvent } from "../src/plex/payload.ts";
+import { parsePlexPayload, type PlexEvent } from "../src/lib/server/plex/payload.ts";
 import { episodePayload, moviePayload, testContext, type TestContext } from "./helpers.ts";
 
 function event(payload: unknown): PlexEvent {

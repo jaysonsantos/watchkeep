@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
-import { testApp, type TestContext } from "./helpers.ts";
+import { addFromForm, addPage } from "../src/lib/server/pages.ts";
+import { formData, testApp, type TestContext } from "./helpers.ts";
 
 let ctx: TestContext | undefined;
 afterEach(async () => {
@@ -38,9 +39,9 @@ describe("adding movies and shows", () => {
     });
     assert.equal(((await again.json()) as { id: number }).id, show.id, "no duplicate");
 
-    const page = await (await built.app.request("/add?q=sever")).text();
-    assert.match(page, /Severance/);
-    assert.match(page, /in library/);
+    const page = await addPage(ctx, new URLSearchParams("q=sever"));
+    assert.equal(page.shows[0]?.title, "Severance");
+    assert.equal(page.shows[0]?.localId, show.id, "the result shows that the library has it");
     const unknown = await built.app.request("/api/movies", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -63,23 +64,12 @@ describe("adding movies and shows", () => {
     assert.equal(created.status, 201);
     assert.equal((await ctx.queries.movies("unwatched")).length, 1);
 
-    const form = new URLSearchParams({ kind: "show", title: "Pluribus", year: "2025", watchlist: "1" });
-    const response = await built.app.request("/add", {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: form.toString(),
-    });
-    assert.equal(response.status, 303);
-    assert.equal(response.headers.get("location"), "/watchlist");
+    const location = await addFromForm(ctx, formData({ kind: "show", title: "Pluribus", year: "2025", watchlist: "1" }));
+    assert.equal(location, "/watchlist");
     const items = await ctx.queries.watchlist();
     assert.deepEqual(items.map((item) => [item.kind, item.title]), [["show", "Pluribus"]]);
 
-    const empty = await built.app.request("/add", {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ kind: "movie", title: "  " }).toString(),
-    });
-    assert.equal(empty.headers.get("location"), "/add?q=&error=title");
-    assert.match(await (await built.app.request("/add")).text(), /manual form/);
+    assert.equal(await addFromForm(ctx, formData({ kind: "movie", title: "  " })), "/add?q=&error=title");
+    assert.equal((await addPage(ctx, new URLSearchParams())).catalogConfigured, false);
   });
 });

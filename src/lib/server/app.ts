@@ -7,9 +7,8 @@ import { Library, type Clock, systemClock } from "./library.ts";
 import { syncPlexLibrary, type SyncReport } from "./plex/sync.ts";
 import { Queries } from "./queries.ts";
 import { Scrobbler } from "./scrobble.ts";
-import { apiRoutes } from "./routes/api.ts";
-import { uiRoutes } from "./routes/ui.ts";
-import { webhookRoutes } from "./routes/webhook.ts";
+import { apiRoutes } from "./http/api.ts";
+import { webhookRoutes } from "./http/webhook.ts";
 import { Views } from "./views.ts";
 
 export interface AppContext {
@@ -90,7 +89,6 @@ export function createApp(ctx: AppContext): Hono {
   });
   app.route("/webhook", webhookRoutes(ctx));
   app.route("/api", apiRoutes(ctx));
-  app.route("/", uiRoutes(ctx));
   app.onError((error, c) => {
     ctx.log(`error: ${error.stack ?? error.message}`);
     return c.json({ error: error.message }, 500);

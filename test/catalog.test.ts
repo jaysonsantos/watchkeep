@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
-import { parsePlexPayload, type PlexEvent } from "../src/plex/payload.ts";
-import { episodePayload, moviePayload, testApp, testContext, type TestContext } from "./helpers.ts";
+import { parsePlexPayload, type PlexEvent } from "../src/lib/server/plex/payload.ts";
+import { applyAction, showPage } from "../src/lib/server/pages.ts";
+import { episodePayload, formData, moviePayload, testApp, testContext, type TestContext } from "./helpers.ts";
 
 function event(payload: unknown): PlexEvent {
   const parsed = parsePlexPayload(payload);
@@ -90,16 +91,10 @@ describe("catalog enrichment", () => {
 
     const marked = await built.app.request("/api/shows/1/seasons/2/episodes/1/watched", { method: "POST" });
     assert.equal(marked.status, 200);
-    const page = await (await built.app.request("/shows/1")).text();
-    assert.match(page, /Hello, Ms\. Cobel/);
-    assert.match(page, /image\.tmdb\.org\/t\/p\/w185\/pPHpeI2X1qEd1CS1SeyrdhZ4qnT\.jpg/);
-    const form = new URLSearchParams({ action: "watch-episode-number", id: "1", season: "1", number: "3", back: "/shows/1" });
-    const response = await built.app.request("/actions", {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: form.toString(),
-    });
-    assert.equal(response.status, 303);
+    const page = await showPage(ctx, 1);
+    assert.ok(page?.episodes.some((episode) => episode.title === "Hello, Ms. Cobel"));
+    assert.equal(page?.show.poster_path, "/pPHpeI2X1qEd1CS1SeyrdhZ4qnT.jpg");
+    await applyAction(ctx, formData({ action: "watch-episode-number", id: "1", season: "1", number: "3" }));
     assert.equal((await ctx.queries.show(1))?.watched_count, 2);
   });
 });

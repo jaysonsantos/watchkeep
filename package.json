@@ -9,24 +9,31 @@
     "node": ">=24"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "start": "node dist/main.js",
-    "dev": "node --watch --experimental-transform-types src/main.ts",
-    "sync": "node dist/main.js sync",
-    "catalog:import": "node dist/main.js catalog:import",
-    "trakt:import": "node dist/main.js trakt:import",
+    "build": "vite build && tsc -p tsconfig.server.json",
+    "start": "node dist/server/main.js",
+    "dev": "vite dev",
+    "prepare": "svelte-kit sync || echo ''",
+    "sync": "node dist/server/main.js sync",
+    "catalog:import": "node dist/server/main.js catalog:import",
+    "trakt:import": "node dist/server/main.js trakt:import",
     "test": "scripts/test-db.sh node --test --experimental-transform-types --test-concurrency=4 'test/**/*.test.ts'",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.server.json --noEmit && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
   },
   "dependencies": {
-    "@hono/node-server": "^2.1.1",
     "hono": "^4.13.7",
     "pg": "^8.23.0"
   },
   "devDependencies": {
+    "@sveltejs/adapter-node": "^5.5.7",
+    "@sveltejs/kit": "^2.70.3",
+    "@sveltejs/vite-plugin-svelte": "^7.3.0",
     "@types/node": "^26.5.1",
     "@types/pg": "^8.23.1",
-    "typescript": "^7.0.2"
+    "@typescript/native": "npm:typescript@^7.0.2",
+    "svelte": "^5.57.0",
+    "svelte-check": "^4.7.6",
+    "typescript": "^6.0.3",
+    "vite": "^8.3.0"
   },
   "packageManager": "pnpm@11.25.0"
 }

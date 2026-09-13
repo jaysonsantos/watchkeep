@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
-import { episodePayload, moviePayload, multipart, testApp, type TestContext } from "./helpers.ts";
+import { isCrossSiteFormPost } from "../src/lib/server/csrf.ts";
+import { applyAction, dashboardPage, historyPage, moviesPage, showPage, showsPage, watchlistPage, webhooksPage } from "../src/lib/server/pages.ts";
+import { episodePayload, formData, moviePayload, multipart, testApp, type TestContext } from "./helpers.ts";
 
 let ctx: TestContext | undefined;
 afterEach(async () => {
@@ -99,46 +101,43 @@ describe("JSON API and UI", () => {
     assert.deepEqual(health, { ok: true, catalog: false });
   });
 
-  it("renders every page", async () => {
+  it("builds the data of every page", async () => {
     const built = await testApp();
     ctx = built.ctx;
     await built.app.request("/webhook/plex", multipart(episodePayload({ event: "media.play" })));
-    for (const path of ["/", "/movies", "/shows", "/shows/1", "/history", "/webhooks", "/movies?status=watched&q=x"]) {
-      const response = await built.app.request(path);
-      assert.equal(response.status, 200, path);
-      assert.match(await response.text(), /Watchkeep/);
-    }
-    assert.equal((await built.app.request("/shows/42")).status, 404);
+    const none = new URLSearchParams();
+    assert.equal((await dashboardPage(ctx)).recent.length, 0);
+    assert.equal((await moviesPage(ctx, new URLSearchParams("status=watched&q=x"))).total, 0);
+    assert.equal((await showsPage(ctx, none)).total, 1);
+    assert.equal((await showPage(ctx, 1))?.show.title, "Severance");
+    assert.equal(await showPage(ctx, 42), null);
+    assert.equal((await historyPage(ctx, none)).page, 1);
+    assert.equal((await webhooksPage(ctx)).events.length, 1);
+    assert.deepEqual((await watchlistPage(ctx)).items, []);
   });
 
-  it("applies form actions and redirects", async () => {
+  it("applies form actions", async () => {
     const built = await testApp();
     ctx = built.ctx;
     await built.app.request("/webhook/plex", multipart(episodePayload({ event: "media.play" })));
-    const form = new URLSearchParams({ action: "watch-episode", id: "1", back: "/shows/1" });
-    const response = await built.app.request("/actions", {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: form.toString(),
-    });
-    assert.equal(response.status, 303);
-    assert.equal(response.headers.get("location"), "/shows/1");
+    await applyAction(ctx, formData({ action: "watch-episode", id: "1" }));
     assert.equal((await ctx.queries.show(1))?.watched_count, 1);
-
-    const escaped = await built.app.request("/actions", {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ action: "noop", id: "1", back: "//evil.example" }).toString(),
-    });
-    assert.equal(escaped.headers.get("location"), "/");
+    await applyAction(ctx, formData({ action: "unwatch-episode", id: "1" }));
+    assert.equal((await ctx.queries.show(1))?.watched_count, 0);
+    await applyAction(ctx, formData({ action: "noop", id: "1" }));
+    await applyAction(ctx, formData({ action: "sync", id: "0" }));
   });
 
-  it("escapes titles in HTML", async () => {
-    const built = await testApp();
-    ctx = built.ctx;
-    await built.app.request("/webhook/plex", multipart(moviePayload({ event: "media.play" }, { title: "<script>alert(1)</script>" })));
-    const page = await (await built.app.request("/movies")).text();
-    assert.ok(!page.includes("<script>alert(1)</script>"));
-    assert.ok(page.includes("&lt;script&gt;"));
+  it("rejects cross-site form posts to the UI", () => {
+    const host = "watchkeep.test:8484";
+    const form = "application/x-www-form-urlencoded";
+    const post = (headers: Record<string, string>) => new Request(`https://${host}/movies?/act`, { method: "POST", headers });
+    assert.equal(isCrossSiteFormPost(post({ "content-type": form }), host), true, "no Origin header");
+    assert.equal(isCrossSiteFormPost(post({ "content-type": form, origin: "null" }), host), true);
+    assert.equal(isCrossSiteFormPost(post({ "content-type": "multipart/form-data; boundary=x", origin: "http://evil.example" }), host), true);
+    assert.equal(isCrossSiteFormPost(post({ "content-type": form, origin: "http://watchkeep.test" }), host), true, "another port");
+    assert.equal(isCrossSiteFormPost(post({ "content-type": form, origin: `http://${host}` }), host), false, "plain http behind the https guess");
+    assert.equal(isCrossSiteFormPost(post({ "content-type": "application/json" }), host), false);
+    assert.equal(isCrossSiteFormPost(new Request(`https://${host}/movies`), host), false);
   });
 });

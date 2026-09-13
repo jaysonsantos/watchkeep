@@ -1,9 +1,9 @@
 import { randomBytes } from "node:crypto";
-import { createApp, createContext, type AppContext } from "../src/app.ts";
-import { ensureCatalogSchema } from "../src/catalog/import-sqlite.ts";
-import { loadConfig, type Config } from "../src/config.ts";
-import { createPool, migrate, type Pool } from "../src/db.ts";
-import type { Clock } from "../src/library.ts";
+import { createApp, createContext, type AppContext } from "../src/lib/server/app.ts";
+import { ensureCatalogSchema } from "../src/lib/server/catalog/import-sqlite.ts";
+import { loadConfig, type Config } from "../src/lib/server/config.ts";
+import { createPool, migrate, type Pool } from "../src/lib/server/db.ts";
+import type { Clock } from "../src/lib/server/library.ts";
 
 const ADMIN_URL = process.env.WATCHKEEP_TEST_DATABASE_URL;
 if (!ADMIN_URL) {
@@ -159,6 +159,12 @@ export function moviePayload(overrides: Record<string, unknown> = {}, metadata: 
     },
     ...overrides,
   };
+}
+
+export function formData(fields: Record<string, string>): FormData {
+  const form = new FormData();
+  for (const [name, value] of Object.entries(fields)) form.set(name, value);
+  return form;
 }
 
 export function multipart(payload: unknown): Request {
