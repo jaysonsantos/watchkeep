@@ -74,7 +74,7 @@ describe("syncPlexLibrary", () => {
   it("enriches synced items from the catalog", async () => {
     ctx = await testContext({ plexUrl: "http://plex.test:32400", plexToken: "tok" }, { fetchImpl: fakePlex(), withCatalog: true });
     await ctx.sync();
-    const movies = await ctx.queries.movies();
+    const movies = await ctx.queries.movies("all", "", "title");
     assert.deepEqual(movies.map((m) => [m.title, m.tmdb_id]), [["Collateral", 4638], ["Heat", 949]]);
     const show = (await ctx.queries.shows())[0]!;
     assert.equal(show.imdb_id, "tt11280740");

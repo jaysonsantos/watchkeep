@@ -142,10 +142,10 @@ with authentication. Only the webhook route checks a token.
 | `GET` | `/api/progress` | Items with a saved playback position. |
 | `GET` | `/api/history?limit=50&offset=0` | Plays, newest first. |
 | `DELETE` | `/api/history/:id` | Remove one play. |
-| `GET` | `/api/movies?status=all\|watched\|unwatched&q=` | Movies. |
+| `GET` | `/api/movies?status=all\|watched\|unwatched&q=&sort=&limit=&offset=` | Movies. See [List order and pages](#list-order-and-pages). |
 | `GET` | `/api/movies/:id` | One movie with its progress. |
 | `POST` / `DELETE` | `/api/movies/:id/watched` | Mark a movie watched or unwatched. |
-| `GET` | `/api/shows?status=&q=` | Shows with watched and total episode counts. |
+| `GET` | `/api/shows?status=&q=&sort=&limit=&offset=` | Shows with watched and total episode counts. |
 | `GET` | `/api/shows/:id` | One show with the merged episode list. |
 | `POST` / `DELETE` | `/api/shows/:id/watched` | Mark every aired episode watched or unwatched. |
 | `POST` / `DELETE` | `/api/episodes/:id/watched` | Mark a known episode. |
@@ -158,6 +158,23 @@ with authentication. Only the webhook route checks a token.
 | `POST` / `DELETE` | `/api/shows/:id/hidden` | Hide a show from the unwatched list, or unhide it. |
 | `GET` | `/api/webhooks` | The last 100 webhook events. |
 | `POST` | `/webhook/plex?token=` | Plex webhook endpoint. Accepts multipart or JSON. |
+
+### List order and pages
+
+The movie and show lists accept a `sort` value:
+
+| Value | Order |
+|---|---|
+| `recent` | Last watched first. Items with no play come next, newest addition first. This is the default. |
+| `title` | Title, A to Z. |
+| `year` | Year, newest first. |
+| `added` | Date added to Watchkeep, newest first. |
+
+The UI pages show 60 items on each page. Use `page` to go to a different page.
+
+The API returns the full list when `limit` is absent. `limit` accepts 1 to 500.
+The `X-Total-Count` response header gives the number of matches before
+`limit` and `offset`.
 
 ## How scrobbling works
 

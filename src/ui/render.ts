@@ -1,5 +1,5 @@
 import type { CatalogMovie, CatalogShow } from "../catalog/catalog.ts";
-import type { HistoryEntry, MovieView, ProgressView, Stats, WatchFilter, WatchlistItem } from "../queries.ts";
+import { SORT_ORDERS, type HistoryEntry, type MovieView, type ProgressView, type SortOrder, type Stats, type WatchFilter, type WatchlistItem } from "../queries.ts";
 import type { MergedEpisode, ShowListItem } from "../views.ts";
 
 /**
@@ -95,6 +95,9 @@ button.small { font-size: .78rem; padding: .22rem .55rem; }
 .seg a { padding: .3rem .85rem; border-radius: 999px; text-decoration: none; color: var(--muted); font-size: .88rem; font-weight: 500; }
 .seg a.active { background: var(--card); color: var(--fg); box-shadow: var(--shadow); }
 .toolbar input { font: inherit; padding: .4rem .8rem; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--fg); min-width: 220px; }
+.toolbar form { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.toolbar .sort { display: inline-flex; align-items: center; gap: .4rem; color: var(--muted); font-size: .88rem; }
+.toolbar select { font: inherit; padding: .38rem .7rem; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--fg); }
 
 /* Tables */
 .table-wrap { overflow-x: auto; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
@@ -153,7 +156,7 @@ tr:last-child td { border-bottom: 0; }
 .add-form input, .add-form select { font: inherit; padding: .4rem .55rem; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); }
 .search { display: flex; gap: .5rem; max-width: 560px; margin-bottom: 1.2rem; }
 .search input { flex: 1; font: inherit; font-size: 1rem; padding: .55rem .9rem; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--fg); }
-.search input:focus, .toolbar input:focus, .add-form input:focus, .add-form select:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }
+.search input:focus, .toolbar input:focus, .toolbar select:focus, .add-form input:focus, .add-form select:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }
 .pager { display: flex; gap: 1rem; align-items: center; margin-top: 1rem; }
 .list { display: flex; flex-direction: column; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
 .list .row { display: flex; align-items: center; gap: .8rem; padding: .55rem .85rem; border-bottom: 1px solid var(--line); }
@@ -274,16 +277,48 @@ function actionForm(action: string, id: number, back: string, label: string, pri
   </form>`);
 }
 
-function toolbar(base: string, filter: WatchFilter, search: string): Raw {
+/** Filter, search, sort, and page of the movie and show lists. */
+export interface ListState {
+  filter: WatchFilter;
+  search: string;
+  sort: SortOrder;
+  page: number;
+  pageSize: number;
+}
+
+/** A list URL that leaves out default values. */
+function listUrl(base: string, state: ListState, page = state.page, filter = state.filter): string {
+  const params = new URLSearchParams();
+  if (filter !== "all") params.set("status", filter);
+  if (state.search) params.set("q", state.search);
+  if (state.sort !== "recent") params.set("sort", state.sort);
+  if (page > 1) params.set("page", String(page));
+  const query = params.toString().replaceAll("+", "%20");
+  return query ? `${base}?${query}` : base;
+}
+
+function toolbar(base: string, state: ListState): Raw {
   const link = (value: WatchFilter, label: string) =>
-    html`<a href="${base}?status=${value}${search ? `&q=${encodeURIComponent(search)}` : ""}" class="${filter === value ? "active" : ""}">${label}</a>`;
+    html`<a href="${listUrl(base, state, 1, value)}" class="${state.filter === value ? "active" : ""}">${label}</a>`;
   return raw(html`<div class="toolbar">
-    <div class="seg">${raw(link("all", "All"))}${raw(link("watched", "Watched"))}${raw(link("unwatched", "Unwatched"))}</div>
-    <form method="get" action="${base}" class="inline">
-      <input type="hidden" name="status" value="${filter}">
-      <input type="search" name="q" placeholder="Filter by title" value="${search}">
+    <div class="seg">${link("all", "All")}${link("watched", "Watched")}${link("unwatched", "Unwatched")}</div>
+    <form method="get" action="${base}">
+      ${state.filter !== "all" ? html`<input type="hidden" name="status" value="${state.filter}">` : ""}
+      <input type="search" name="q" placeholder="Filter by title" value="${state.search}">
+      <label class="sort">Sort <select name="sort" onchange="this.form.submit()">${SORT_ORDERS.map(
+        ([value, label]) => html`<option value="${value}" ${value === state.sort ? "selected" : ""}>${label}</option>`,
+      )}</select></label>
+      <noscript><button type="submit" class="small">Apply</button></noscript>
     </form>
   </div>`);
+}
+
+function pager(page: number, pages: number, href: (page: number) => string, previous: string, next: string): Raw {
+  return raw(html`<div class="pager">
+  ${page > 1 ? html`<a class="btn" href="${href(page - 1)}">${previous}</a>` : ""}
+  <span class="muted">Page ${page} of ${pages}</span>
+  ${page < pages ? html`<a class="btn" href="${href(page + 1)}">${next}</a>` : ""}
+</div>`);
 }
 
 function progressBar(positionMs: number, durationMs: number | null): Raw {
@@ -375,10 +410,12 @@ ${input.recent.map(
   return layout("Dashboard", "/", body);
 }
 
-export function renderMovies(input: { images: string; movies: MovieView[]; filter: WatchFilter; search: string }): string {
-  const back = `/movies?status=${input.filter}${input.search ? `&q=${encodeURIComponent(input.search)}` : ""}`;
-  const body = html`${pageHead("Movies", html`${input.movies.length} ${input.filter === "all" ? "movies" : `${input.filter} movies`}`)}
-${toolbar("/movies", input.filter, input.search)}
+export function renderMovies(input: { images: string; movies: MovieView[]; total: number; list: ListState }): string {
+  const { list } = input;
+  const back = listUrl("/movies", list);
+  const pages = Math.max(1, Math.ceil(input.total / list.pageSize));
+  const body = html`${pageHead("Movies", html`${input.total} ${list.filter === "all" ? "movies" : `${list.filter} movies`}`)}
+${toolbar("/movies", list)}
 ${
   input.movies.length === 0
     ? raw('<div class="empty">No movies match. Add one, run a Plex sync, or play a movie.</div>')
@@ -398,13 +435,16 @@ ${input.movies.map((movie) => {
 </div>`;
 })}
 </div>`)
-}`;
+}
+${pager(list.page, pages, (page) => listUrl("/movies", list, page), "← Previous", "Next →")}`;
   return layout("Movies", "/movies", body);
 }
 
-export function renderShows(input: { images: string; shows: ShowListItem[]; filter: WatchFilter; search: string }): string {
-  const body = html`${pageHead("Shows", html`${input.shows.length} ${input.filter === "all" ? "shows" : `${input.filter} shows`}`)}
-${toolbar("/shows", input.filter, input.search)}
+export function renderShows(input: { images: string; shows: ShowListItem[]; total: number; list: ListState }): string {
+  const { list } = input;
+  const pages = Math.max(1, Math.ceil(input.total / list.pageSize));
+  const body = html`${pageHead("Shows", html`${input.total} ${list.filter === "all" ? "shows" : `${list.filter} shows`}`)}
+${toolbar("/shows", list)}
 ${
   input.shows.length === 0
     ? raw('<div class="empty">No shows match. Add one, run a Plex sync, or play an episode.</div>')
@@ -429,7 +469,8 @@ ${input.shows.map((show) => {
 </a>`;
 })}
 </div>`)
-}`;
+}
+${pager(list.page, pages, (page) => listUrl("/shows", list, page), "← Previous", "Next →")}`;
   return layout("Shows", "/shows", body);
 }
 
@@ -528,11 +569,7 @@ ${input.entries.map(
 )}
 </tbody></table></div>`)
 }
-<div class="pager">
-  ${input.page > 1 ? raw(html`<a class="btn" href="/history?page=${input.page - 1}">← Newer</a>`) : ""}
-  <span class="muted">Page ${input.page} of ${pages}</span>
-  ${input.page < pages ? raw(html`<a class="btn" href="/history?page=${input.page + 1}">Older →</a>`) : ""}
-</div>`;
+${pager(input.page, pages, (page) => `/history?page=${page}`, "← Newer", "Older →")}`;
   return layout("History", "/history", body);
 }
 

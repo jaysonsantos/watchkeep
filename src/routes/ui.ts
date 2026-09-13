@@ -1,11 +1,19 @@
 import { Hono } from "hono";
 import type { AppContext } from "../app.ts";
 import type { TargetKind } from "../db.ts";
-import type { WatchFilter } from "../queries.ts";
+import { sortOf, type WatchFilter } from "../queries.ts";
 import { LOGO_SVG, renderAdd, renderDashboard, renderHistory, renderMovies, renderShow, renderShows, renderWatchlist, renderWebhooks } from "../ui/render.ts";
+
+const LIST_PAGE_SIZE = 60;
 
 function filterOf(value: string | undefined): WatchFilter {
   return value === "watched" || value === "unwatched" ? value : "all";
+}
+
+/** The requested page, clamped to the pages that exist. */
+function pageOf(value: string | undefined, total: number): number {
+  const last = Math.max(1, Math.ceil(total / LIST_PAGE_SIZE));
+  return Math.min(last, Math.max(1, Math.floor(Number(value ?? 1)) || 1));
 }
 
 export function uiRoutes(ctx: AppContext): Hono {
@@ -34,13 +42,21 @@ export function uiRoutes(ctx: AppContext): Hono {
   app.get("/movies", async (c) => {
     const filter = filterOf(c.req.query("status"));
     const search = c.req.query("q") ?? "";
-    return c.html(renderMovies({ images, movies: await ctx.queries.movies(filter, search), filter, search }));
+    const sort = sortOf(c.req.query("sort"));
+    const total = await ctx.queries.movieCount(filter, search);
+    const page = pageOf(c.req.query("page"), total);
+    const movies = await ctx.queries.movies(filter, search, sort, LIST_PAGE_SIZE, (page - 1) * LIST_PAGE_SIZE);
+    return c.html(renderMovies({ images, movies, total, list: { filter, search, sort, page, pageSize: LIST_PAGE_SIZE } }));
   });
 
   app.get("/shows", async (c) => {
     const filter = filterOf(c.req.query("status"));
     const search = c.req.query("q") ?? "";
-    return c.html(renderShows({ images, shows: await ctx.views.shows(filter, search), filter, search }));
+    const sort = sortOf(c.req.query("sort"));
+    const all = await ctx.views.shows(filter, search, sort);
+    const page = pageOf(c.req.query("page"), all.length);
+    const shows = all.slice((page - 1) * LIST_PAGE_SIZE, page * LIST_PAGE_SIZE);
+    return c.html(renderShows({ images, shows, total: all.length, list: { filter, search, sort, page, pageSize: LIST_PAGE_SIZE } }));
   });
 
   app.get("/shows/:id", async (c) => {

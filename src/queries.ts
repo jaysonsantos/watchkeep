@@ -2,6 +2,19 @@ import type { EpisodeRow, MediaRow, PlayRow, ProgressRow, Queryable } from "./db
 
 export type WatchFilter = "all" | "watched" | "unwatched";
 
+/** List order for movies and shows. `recent` puts the last watched first, then the newest additions. */
+export type SortOrder = "recent" | "title" | "year" | "added";
+export const SORT_ORDERS: ReadonlyArray<[SortOrder, string]> = [
+  ["recent", "Last watched"],
+  ["title", "Title"],
+  ["year", "Year"],
+  ["added", "Recently added"],
+];
+
+export function sortOf(value: string | undefined): SortOrder {
+  return SORT_ORDERS.some(([sort]) => sort === value) ? (value as SortOrder) : "recent";
+}
+
 export interface MovieView extends MediaRow {
   play_count: number;
   last_watched_at: string | null;
@@ -102,6 +115,24 @@ const MOVIE_SELECT = `
   FROM media m
   LEFT JOIN plays p ON p.target_kind = 'movie' AND p.target_id = m.id`;
 
+const MOVIE_ORDER: Record<SortOrder, string> = {
+  recent: "MAX(p.watched_at) DESC NULLS LAST, m.created_at DESC, lower(m.title), m.id",
+  title: "lower(m.title), m.year NULLS LAST, m.id",
+  year: "m.year DESC NULLS LAST, lower(m.title), m.id",
+  added: "m.created_at DESC, m.id DESC",
+};
+
+const SHOW_ORDER: Record<SortOrder, string> = {
+  recent: "last_watched_at DESC NULLS LAST, s.created_at DESC, lower(s.title), s.id",
+  title: "lower(s.title), s.year NULLS LAST, s.id",
+  year: "s.year DESC NULLS LAST, lower(s.title), s.id",
+  added: "s.created_at DESC, s.id DESC",
+};
+
+function movieHaving(filter: WatchFilter): string {
+  return filter === "watched" ? "HAVING COUNT(p.id) > 0" : filter === "unwatched" ? "HAVING COUNT(p.id) = 0" : "";
+}
+
 export class Queries {
   constructor(private readonly db: Queryable) {}
 
@@ -118,17 +149,30 @@ export class Queries {
     return rows[0]!;
   }
 
-  async movies(filter: WatchFilter = "all", search = ""): Promise<MovieView[]> {
-    const having =
-      filter === "watched" ? "HAVING COUNT(p.id) > 0" : filter === "unwatched" ? "HAVING COUNT(p.id) = 0" : "";
+  /** A `limit` of null returns every row. */
+  async movies(filter: WatchFilter = "all", search = "", sort: SortOrder = "recent", limit: number | null = null, offset = 0): Promise<MovieView[]> {
     const { rows } = await this.db.query<MovieView>(
       `${MOVIE_SELECT}
        WHERE m.kind = 'movie' AND ($1 = '' OR m.title ILIKE '%' || $1 || '%')
-       GROUP BY m.id ${having}
-       ORDER BY lower(m.title)`,
-      [search],
+       GROUP BY m.id ${movieHaving(filter)}
+       ORDER BY ${MOVIE_ORDER[sort]}
+       LIMIT $2 OFFSET $3`,
+      [search, limit, offset],
     );
     return rows;
+  }
+
+  async movieCount(filter: WatchFilter = "all", search = ""): Promise<number> {
+    const { rows } = await this.db.query<{ count: number }>(
+      `SELECT COUNT(*)::int AS count FROM (
+         SELECT m.id FROM media m
+         LEFT JOIN plays p ON p.target_kind = 'movie' AND p.target_id = m.id
+         WHERE m.kind = 'movie' AND ($1 = '' OR m.title ILIKE '%' || $1 || '%')
+         GROUP BY m.id ${movieHaving(filter)}
+       ) matched`,
+      [search],
+    );
+    return rows[0]?.count ?? 0;
   }
 
   async movie(id: number): Promise<MovieView | null> {
@@ -136,11 +180,11 @@ export class Queries {
     return rows[0] ?? null;
   }
 
-  async shows(search = ""): Promise<ShowView[]> {
+  async shows(search = "", sort: SortOrder = "recent"): Promise<ShowView[]> {
     const { rows } = await this.db.query<ShowView>(
       `${SHOW_SELECT}
        WHERE s.kind = 'show' AND ($1 = '' OR s.title ILIKE '%' || $1 || '%')
-       GROUP BY s.id ORDER BY lower(s.title)`,
+       GROUP BY s.id ORDER BY ${SHOW_ORDER[sort]}`,
       [search],
     );
     return rows;

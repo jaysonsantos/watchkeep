@@ -1,10 +1,18 @@
 import { Hono } from "hono";
 import type { AppContext } from "../app.ts";
 import type { TargetKind } from "../db.ts";
-import type { WatchFilter } from "../queries.ts";
+import { sortOf, type WatchFilter } from "../queries.ts";
 
 function filterOf(value: string | undefined): WatchFilter {
   return value === "watched" || value === "unwatched" ? value : "all";
+}
+
+/** Optional `limit` (1 to 500) and `offset` for list routes. Without `limit`, the list is complete. */
+function windowOf(limit: string | undefined, offset: string | undefined): { limit: number | null; offset: number } {
+  return {
+    limit: limit === undefined ? null : Math.min(500, Math.max(1, Math.floor(Number(limit)) || 50)),
+    offset: Math.max(0, Math.floor(Number(offset ?? 0)) || 0),
+  };
 }
 
 function idOf(value: string | undefined): number | null {
@@ -24,7 +32,14 @@ export function apiRoutes(ctx: AppContext): Hono {
   });
   app.get("/webhooks", async (c) => c.json(await ctx.queries.recentWebhooks(100)));
 
-  app.get("/movies", async (c) => c.json(await ctx.queries.movies(filterOf(c.req.query("status")), c.req.query("q") ?? "")));
+  /** List routes send the number of matches before `limit` and `offset` in `X-Total-Count`. */
+  app.get("/movies", async (c) => {
+    const filter = filterOf(c.req.query("status"));
+    const search = c.req.query("q") ?? "";
+    const { limit, offset } = windowOf(c.req.query("limit"), c.req.query("offset"));
+    c.header("X-Total-Count", String(await ctx.queries.movieCount(filter, search)));
+    return c.json(await ctx.queries.movies(filter, search, sortOf(c.req.query("sort")), limit, offset));
+  });
   app.get("/movies/:id", async (c) => {
     const id = idOf(c.req.param("id"));
     const movie = id ? await ctx.queries.movie(id) : null;
@@ -32,7 +47,12 @@ export function apiRoutes(ctx: AppContext): Hono {
     return c.json({ ...movie, progress: await ctx.library.getProgress("movie", movie.id) });
   });
 
-  app.get("/shows", async (c) => c.json(await ctx.views.shows(filterOf(c.req.query("status")), c.req.query("q") ?? "")));
+  app.get("/shows", async (c) => {
+    const shows = await ctx.views.shows(filterOf(c.req.query("status")), c.req.query("q") ?? "", sortOf(c.req.query("sort")));
+    const { limit, offset } = windowOf(c.req.query("limit"), c.req.query("offset"));
+    c.header("X-Total-Count", String(shows.length));
+    return c.json(shows.slice(offset, limit === null ? undefined : offset + limit));
+  });
   app.get("/shows/:id", async (c) => {
     const id = idOf(c.req.param("id"));
     const detail = id ? await ctx.views.show(id) : null;

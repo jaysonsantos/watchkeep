@@ -5,7 +5,7 @@
  */
 import type { Catalog, CatalogEpisode } from "./catalog/catalog.ts";
 import type { Clock } from "./library.ts";
-import type { EpisodeView, Queries, ShowView, WatchFilter } from "./queries.ts";
+import type { EpisodeView, Queries, ShowView, SortOrder, WatchFilter } from "./queries.ts";
 
 export interface ShowListItem extends ShowView {
   /** Episodes known to the catalog (aired, regular seasons) or, without a catalog, episodes seen locally. */
@@ -38,8 +38,9 @@ export class Views {
     return this.clock.now().toISOString().slice(0, 10);
   }
 
-  async shows(filter: WatchFilter = "all", search = ""): Promise<ShowListItem[]> {
-    const rows = await this.queries.shows(search);
+  /** Filters in memory, because the watched state needs the catalog episode counts. */
+  async shows(filter: WatchFilter = "all", search = "", sort: SortOrder = "recent"): Promise<ShowListItem[]> {
+    const rows = await this.queries.shows(search, sort);
     const tmdbIds = rows.map((row) => row.tmdb_id).filter((id): id is number => id !== null);
     const totals = this.catalog ? await this.catalog.airedEpisodeCounts(tmdbIds, this.today()) : new Map<number, number>();
     const items = rows.map((row) => ({
