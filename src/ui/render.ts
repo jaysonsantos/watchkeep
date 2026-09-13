@@ -3,8 +3,8 @@ import type { HistoryEntry, MovieView, ProgressView, Stats, WatchFilter, Watchli
 import type { MergedEpisode, ShowListItem } from "../views.ts";
 
 /**
- * The Watchkeep mark: a lens ring with a check inside. Fixed colours, so the
- * logo looks the same in both themes and as a favicon.
+ * The Watchkeep mark: a keeper's logbook with a ribbon bookmark and a check.
+ * Fixed colours, so the logo looks the same in both themes and as a favicon.
  */
 export const LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Watchkeep">
   <defs>
@@ -14,9 +14,12 @@ export const LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64
     </linearGradient>
   </defs>
   <rect width="64" height="64" rx="15" fill="url(#wk-g)"/>
-  <circle cx="32" cy="32" r="17" fill="none" stroke="#ffffff" stroke-opacity=".35" stroke-width="5"/>
-  <path d="M15 32a17 17 0 0 1 17-17" fill="none" stroke="#ffffff" stroke-width="5" stroke-linecap="round"/>
-  <path d="M23.5 33.5l6.5 6.5 13-15" fill="none" stroke="#ffffff" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- logbook: spine, cover, ribbon bookmark, check -->
+  <rect x="15" y="13" width="7" height="38" rx="2.5" fill="#ffffff" fill-opacity=".55"/>
+  <rect x="20" y="13" width="29" height="38" rx="4" fill="#ffffff"/>
+  <path d="M38 13v15l3.5-3 3.5 3V13z" fill="#0f5f44"/>
+  <path d="M27 24h7" stroke="#0f5f44" stroke-opacity=".35" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M26.5 38.5l5 5 9-10.5" fill="none" stroke="#0f5f44" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>`;
 
 const LOGO_DATA_URI = `data:image/svg+xml,${encodeURIComponent(LOGO_SVG)}`;
