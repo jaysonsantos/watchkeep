@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import type { AppContext } from "../app.ts";
 import type { TargetKind } from "../db.ts";
 import type { WatchFilter } from "../queries.ts";
-import { renderAdd, renderDashboard, renderHistory, renderMovies, renderShow, renderShows, renderWatchlist, renderWebhooks } from "../ui/render.ts";
+import { LOGO_SVG, renderAdd, renderDashboard, renderHistory, renderMovies, renderShow, renderShows, renderWatchlist, renderWebhooks } from "../ui/render.ts";
 
 function filterOf(value: string | undefined): WatchFilter {
   return value === "watched" || value === "unwatched" ? value : "all";
@@ -11,6 +11,12 @@ function filterOf(value: string | undefined): WatchFilter {
 export function uiRoutes(ctx: AppContext): Hono {
   const app = new Hono();
   const images = ctx.config.imageBaseUrl;
+
+  app.get("/logo.svg", (c) => {
+    c.header("Content-Type", "image/svg+xml");
+    c.header("Cache-Control", "public, max-age=86400");
+    return c.body(LOGO_SVG);
+  });
 
   app.get("/", async (c) =>
     c.html(

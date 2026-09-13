@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/logo.svg" width="96" height="96" alt="Watchkeep logo"></p>
+
 # Watchkeep
 
 Watchkeep is a self-hosted tracker for the movies and TV episodes that you
