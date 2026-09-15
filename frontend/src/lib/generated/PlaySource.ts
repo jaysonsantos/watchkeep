@@ -3,4 +3,4 @@
 /**
  * Where a play came from.
  */
-export type PlaySource = "manual" | "plex-scrobble" | "plex-stop" | "plex-sync" | "trakt";
+export type PlaySource = "manual" | "plex-scrobble" | "plex-stop" | "plex-sync" | "scrobble" | "trakt";

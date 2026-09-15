@@ -1,5 +1,8 @@
-//! Turns a Plex event into progress or plays. Catalog enrichment lives here,
-//! because the scrobbler, the library sync, and the manual actions share it.
+//! Turns a Plex event or a generic scrobble event into progress or plays.
+//! Catalog enrichment lives here, because the scrobbler, the library sync, and
+//! the manual actions share it.
+
+pub mod event;
 
 use std::ops::DerefMut;
 use std::sync::Arc;
@@ -14,13 +17,14 @@ use watchkeep_catalog::{Catalog, CatalogEpisode, CatalogMovie, CatalogShow};
 use watchkeep_storage::clock::SharedClock;
 use watchkeep_storage::library::{Library, PlayInput, ProgressInput};
 use watchkeep_storage::model::{
-    EpisodeInput, EpisodeRef, ExternalIds, MediaRef, MovieRef, PlaySource, PlayState, ShowRef,
-    TargetKind, non_empty, tmdb_number, to_millis,
+    EpisodeInput, EpisodeRef, ExternalIds, MediaRef, MovieRef, PlaySource, PlayState, ProgressRow,
+    ShowRef, TargetKind, non_empty, tmdb_number, to_millis,
 };
 use watchkeep_storage::text_enum;
 
 use crate::config::Config;
 use crate::plex::payload::{PlexEvent, PlexEventName};
+use crate::scrobble::event::{ScrobbleEvent, ScrobbleEventName};
 
 const SECONDS_PER_MINUTE: u64 = 60;
 
@@ -35,11 +39,16 @@ const SCROBBLE_ERROR: &str = "error";
 
 text_enum! {
     /// What the scrobbler did with an event. The text is the `outcome` of the webhook log.
+    /// `duplicate-event` means the sender delivered the same `event_id` before,
+    /// and `stale-event` means the event is older than the stored position.
     ScrobbleAction {
         Progress => "progress",
         Play => "play",
         DuplicatePlay => "duplicate-play",
         AlreadyWatched => "already-watched",
+        DuplicateEvent => "duplicate-event",
+        StaleEvent => "stale-event",
+        Unwatched => "unwatched",
         Rating => "rating",
         IgnoredAccount => "ignored-account",
     }
@@ -102,6 +111,14 @@ fn with_tmdb(
     }
 }
 
+/// The title of the source, or the catalog title when the source sent none.
+fn title_or(title: String, catalog_title: &str) -> String {
+    if title.trim().is_empty() {
+        return catalog_title.to_owned();
+    }
+    title
+}
+
 /// Merge catalog data into a movie reference. Plex values win, the catalog fills gaps.
 pub fn movie_with_catalog(media: MovieRef, matched: Option<&CatalogMovie>) -> MovieRef {
     let Some(matched) = matched else { return media };
@@ -118,14 +135,14 @@ pub fn movie_with_catalog(media: MovieRef, matched: Option<&CatalogMovie>) -> Mo
             .or_else(|| runtime_to_duration(matched.runtime_min)),
         summary: media.summary.or_else(|| matched.overview.clone()),
         poster_path: matched.poster_path.clone(),
-        title: media.title,
+        title: title_or(media.title, &matched.title),
     }
 }
 
 pub fn show_with_catalog(show: ShowRef, matched: Option<&CatalogShow>) -> ShowRef {
     let Some(matched) = matched else { return show };
     ShowRef {
-        title: show.title,
+        title: title_or(show.title, &matched.title),
         year: show.year.or(matched.year),
         ids: with_tmdb(
             &show.ids,
@@ -282,14 +299,21 @@ pub async fn resolve_target<C: DerefMut<Target = PgConnection>>(
     }
 }
 
-fn account_allowed(config: &Config, event: &PlexEvent) -> bool {
-    let accepted = config.accepted_accounts();
+/// True when the list is empty, or when it holds one of the names of the event.
+fn account_allowed(accepted: &[&str], names: &[Option<&str>]) -> bool {
     if accepted.is_empty() {
         return true;
     }
-    accepted.iter().any(|allowed| {
-        Some(*allowed) == event.account.as_deref() || Some(*allowed) == event.account_id.as_deref()
-    })
+    accepted
+        .iter()
+        .any(|allowed| names.contains(&Some(*allowed)))
+}
+
+fn plex_account_allowed(config: &Config, event: &PlexEvent) -> bool {
+    account_allowed(
+        &config.accepted_accounts(),
+        &[event.account.as_deref(), event.account_id.as_deref()],
+    )
 }
 
 /// The position as a percentage of the duration, with one decimal, capped at 100.
@@ -357,7 +381,7 @@ impl Scrobbler {
     }
 
     async fn apply_event(&self, event: &PlexEvent) -> Result<ScrobbleResult> {
-        if !account_allowed(&self.config, event) {
+        if !plex_account_allowed(&self.config, event) {
             let kind = event.media.target_kind();
             return Ok(ScrobbleResult {
                 action: ScrobbleAction::IgnoredAccount,
@@ -393,6 +417,204 @@ impl Scrobbler {
         tx.commit().await?;
         Ok(result)
     }
+
+    // region: generic scrobble
+
+    /// Apply one event of `POST /webhook/scrobble`. The caller validated the body,
+    /// so the media reference is ready.
+    pub async fn apply_scrobble(
+        &self,
+        event: &ScrobbleEvent,
+        media: MediaRef,
+    ) -> Result<ScrobbleResult> {
+        let kind = media.target_kind();
+        let viewer = event.viewer();
+        if !account_allowed(
+            &self.config.accepted_scrobble_accounts(),
+            &[viewer.as_deref()],
+        ) {
+            return Ok(ScrobbleResult {
+                action: ScrobbleAction::IgnoredAccount,
+                target_kind: kind,
+                target_id: None,
+                title: kind.to_string(),
+                position_ms: None,
+                percent: None,
+            });
+        }
+        let mut tx = self.pool.begin().await?;
+        let result = {
+            let mut library = Library::new(&mut *tx, self.clock.clone());
+            let target = resolve_target(&mut library, self.catalog.as_ref(), media).await?;
+            match event.event {
+                ScrobbleEventName::Start | ScrobbleEventName::Progress => {
+                    self.scrobble_progress(&mut library, event, &target, PlayState::Playing)
+                        .await?
+                }
+                ScrobbleEventName::Pause => {
+                    self.scrobble_progress(&mut library, event, &target, PlayState::Paused)
+                        .await?
+                }
+                ScrobbleEventName::Stop => self.scrobble_stop(&mut library, event, &target).await?,
+                ScrobbleEventName::Watched => {
+                    self.scrobble_play(&mut library, event, &target).await?
+                }
+                ScrobbleEventName::Unwatched => {
+                    Self::scrobble_unwatched(&mut library, &target).await?
+                }
+            }
+        };
+        tx.commit().await?;
+        Ok(result)
+    }
+
+    /// The position and the duration of a generic event, and the stored progress.
+    /// `duration_ms` of the body wins over the catalog runtime, which has minute precision.
+    async fn scrobble_playback<C: DerefMut<Target = PgConnection>>(
+        library: &mut Library<C>,
+        event: &ScrobbleEvent,
+        target: &ResolvedTarget,
+    ) -> Result<(Duration, Option<Duration>, Option<ProgressRow>)> {
+        let existing = library.get_progress(target.kind, target.id).await?;
+        let position = event
+            .position()
+            .or_else(|| existing.as_ref().map(|progress| progress.position()))
+            .unwrap_or_default();
+        let duration = event
+            .duration()
+            .or(target.duration)
+            .or_else(|| existing.as_ref().and_then(|progress| progress.duration()));
+        Ok((position, duration, existing))
+    }
+
+    /// Save the position. Senders retry, so an event that is older than the
+    /// stored position leaves the position alone.
+    async fn scrobble_progress<C: DerefMut<Target = PgConnection>>(
+        &self,
+        library: &mut Library<C>,
+        event: &ScrobbleEvent,
+        target: &ResolvedTarget,
+        state: PlayState,
+    ) -> Result<ScrobbleResult> {
+        let (position, duration, existing) =
+            Self::scrobble_playback(library, event, target).await?;
+        if let Some(stored) = existing.filter(|stored| event.occurred_at < stored.updated_at) {
+            let position = stored.position();
+            return Ok(ScrobbleResult {
+                action: ScrobbleAction::StaleEvent,
+                target_kind: target.kind,
+                target_id: Some(target.id),
+                title: target.title.clone(),
+                position_ms: Some(to_millis(position)),
+                percent: percent_of(position, stored.duration()),
+            });
+        }
+        library
+            .set_progress(ProgressInput {
+                kind: target.kind,
+                id: target.id,
+                position,
+                duration,
+                state,
+                account: event.viewer(),
+                player: event.device(),
+                updated_at: Some(event.occurred_at),
+            })
+            .await?;
+        Ok(ScrobbleResult {
+            action: ScrobbleAction::Progress,
+            target_kind: target.kind,
+            target_id: Some(target.id),
+            title: target.title.clone(),
+            position_ms: Some(to_millis(position)),
+            percent: percent_of(position, duration),
+        })
+    }
+
+    /// A stop at or above the threshold records a play. A shorter one saves the position.
+    async fn scrobble_stop<C: DerefMut<Target = PgConnection>>(
+        &self,
+        library: &mut Library<C>,
+        event: &ScrobbleEvent,
+        target: &ResolvedTarget,
+    ) -> Result<ScrobbleResult> {
+        let (position, duration, _) = Self::scrobble_playback(library, event, target).await?;
+        let finished = percent_of(position, duration)
+            .is_some_and(|percent| percent >= self.config.watched_threshold_percent);
+        if finished {
+            return self.scrobble_play(library, event, target).await;
+        }
+        self.scrobble_progress(library, event, target, PlayState::Stopped)
+            .await
+    }
+
+    /// Record a play under the id of the event. The unique index on
+    /// `(source, external_id)` makes a second delivery a no-op.
+    async fn scrobble_play<C: DerefMut<Target = PgConnection>>(
+        &self,
+        library: &mut Library<C>,
+        event: &ScrobbleEvent,
+        target: &ResolvedTarget,
+    ) -> Result<ScrobbleResult> {
+        let external_id = event.event_id.to_string();
+        let result = |action: ScrobbleAction| ScrobbleResult {
+            action,
+            target_kind: target.kind,
+            target_id: Some(target.id),
+            title: target.title.clone(),
+            position_ms: None,
+            percent: Some(FULL_PERCENT),
+        };
+        if library
+            .play_by_external_id(PlaySource::Scrobble, &external_id)
+            .await?
+            .is_some()
+        {
+            return Ok(result(ScrobbleAction::DuplicateEvent));
+        }
+        let played_at = event.played_at();
+        let last = library.last_play(target.kind, target.id).await?;
+        library.clear_progress(target.kind, target.id).await?;
+        let duplicate = last.is_some_and(|play| {
+            (played_at - play.watched_at)
+                .to_std()
+                .is_ok_and(|since| since < self.config.rewatch_window)
+        });
+        if duplicate {
+            return Ok(result(ScrobbleAction::DuplicatePlay));
+        }
+        library
+            .record_play(PlayInput {
+                kind: target.kind,
+                id: target.id,
+                watched_at: Some(played_at),
+                source: PlaySource::Scrobble,
+                account: event.viewer(),
+                player: event.device(),
+                external_id: Some(external_id),
+            })
+            .await?;
+        Ok(result(ScrobbleAction::Play))
+    }
+
+    /// Drop every play and the position, like `DELETE /api/movies/:id/watched`.
+    async fn scrobble_unwatched<C: DerefMut<Target = PgConnection>>(
+        library: &mut Library<C>,
+        target: &ResolvedTarget,
+    ) -> Result<ScrobbleResult> {
+        library.remove_plays(target.kind, target.id).await?;
+        library.clear_progress(target.kind, target.id).await?;
+        Ok(ScrobbleResult {
+            action: ScrobbleAction::Unwatched,
+            target_kind: target.kind,
+            target_id: Some(target.id),
+            title: target.title.clone(),
+            position_ms: None,
+            percent: None,
+        })
+    }
+
+    // endregion: generic scrobble
 
     async fn rate<C: DerefMut<Target = PgConnection>>(
         &self,
