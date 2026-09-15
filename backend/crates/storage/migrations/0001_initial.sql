@@ -1,18 +1,24 @@
--- Timestamps are ISO-8601 text, so that the API returns them unchanged.
+-- The Watchkeep schema. Ids are UUID v7 from the server (PostgreSQL 18 uuidv7()),
+-- so they sort by creation time. Timestamps are timestamptz and air dates are
+-- date. Durations and positions are milliseconds. The words of the text columns
+-- are the values of the text enums in model.rs.
+
 CREATE TABLE media (
-  id BIGSERIAL PRIMARY KEY,
-  kind TEXT NOT NULL CHECK (kind IN ('movie', 'show')),
-  title TEXT NOT NULL,
-  year INTEGER,
-  plex_guid TEXT,
-  imdb_id TEXT,
-  tmdb_id BIGINT,
-  tvdb_id TEXT,
-  duration_ms BIGINT,
-  summary TEXT,
-  poster_path TEXT,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  id uuid PRIMARY KEY DEFAULT uuidv7(),
+  kind text NOT NULL CHECK (kind IN ('movie', 'show')),
+  title text NOT NULL,
+  year integer,
+  plex_guid text,
+  imdb_id text,
+  tmdb_id bigint,
+  tvdb_id text,
+  duration_ms bigint,
+  summary text,
+  poster_path text,
+  -- Hidden shows do not appear as unwatched.
+  hidden_at timestamptz,
+  created_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL
 );
 CREATE UNIQUE INDEX media_plex_guid ON media (plex_guid) WHERE plex_guid IS NOT NULL;
 CREATE UNIQUE INDEX media_kind_imdb ON media (kind, imdb_id) WHERE imdb_id IS NOT NULL;
@@ -21,65 +27,76 @@ CREATE UNIQUE INDEX media_kind_tvdb ON media (kind, tvdb_id) WHERE tvdb_id IS NO
 CREATE INDEX media_kind_title ON media (kind, lower(title));
 
 CREATE TABLE episodes (
-  id BIGSERIAL PRIMARY KEY,
-  show_id BIGINT NOT NULL REFERENCES media (id) ON DELETE CASCADE,
-  season INTEGER NOT NULL,
-  number INTEGER NOT NULL,
-  title TEXT,
-  plex_guid TEXT,
-  imdb_id TEXT,
-  tmdb_id BIGINT,
-  tvdb_id TEXT,
-  duration_ms BIGINT,
-  aired_at TEXT,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
+  id uuid PRIMARY KEY DEFAULT uuidv7(),
+  show_id uuid NOT NULL REFERENCES media (id) ON DELETE CASCADE,
+  season integer NOT NULL,
+  number integer NOT NULL,
+  title text,
+  plex_guid text,
+  imdb_id text,
+  tmdb_id bigint,
+  tvdb_id text,
+  duration_ms bigint,
+  aired_at date,
+  created_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL,
   UNIQUE (show_id, season, number)
 );
 CREATE UNIQUE INDEX episodes_plex_guid ON episodes (plex_guid) WHERE plex_guid IS NOT NULL;
 CREATE UNIQUE INDEX episodes_tmdb ON episodes (tmdb_id) WHERE tmdb_id IS NOT NULL;
 
 CREATE TABLE plays (
-  id BIGSERIAL PRIMARY KEY,
-  target_kind TEXT NOT NULL CHECK (target_kind IN ('movie', 'episode')),
-  target_id BIGINT NOT NULL,
-  watched_at TEXT NOT NULL,
-  source TEXT NOT NULL,
-  account TEXT,
-  player TEXT
+  id uuid PRIMARY KEY DEFAULT uuidv7(),
+  target_kind text NOT NULL CHECK (target_kind IN ('movie', 'episode')),
+  target_id uuid NOT NULL,
+  watched_at timestamptz NOT NULL,
+  source text NOT NULL,
+  account text,
+  player text,
+  -- The id of the source record of an import, so that a second import adds no duplicate.
+  external_id text
 );
 CREATE INDEX plays_target ON plays (target_kind, target_id, watched_at);
 CREATE INDEX plays_watched_at ON plays (watched_at);
+CREATE UNIQUE INDEX plays_source_external ON plays (source, external_id) WHERE external_id IS NOT NULL;
 
 CREATE TABLE progress (
-  target_kind TEXT NOT NULL CHECK (target_kind IN ('movie', 'episode')),
-  target_id BIGINT NOT NULL,
-  position_ms BIGINT NOT NULL,
-  duration_ms BIGINT,
-  state TEXT NOT NULL CHECK (state IN ('playing', 'paused', 'stopped')),
-  account TEXT,
-  player TEXT,
-  updated_at TEXT NOT NULL,
+  target_kind text NOT NULL CHECK (target_kind IN ('movie', 'episode')),
+  target_id uuid NOT NULL,
+  position_ms bigint NOT NULL,
+  duration_ms bigint,
+  state text NOT NULL CHECK (state IN ('playing', 'paused', 'stopped')),
+  account text,
+  player text,
+  updated_at timestamptz NOT NULL,
   PRIMARY KEY (target_kind, target_id)
 );
 
 CREATE TABLE ratings (
-  target_kind TEXT NOT NULL CHECK (target_kind IN ('movie', 'show', 'episode')),
-  target_id BIGINT NOT NULL,
-  rating DOUBLE PRECISION NOT NULL,
-  rated_at TEXT NOT NULL,
+  target_kind text NOT NULL CHECK (target_kind IN ('movie', 'show', 'episode')),
+  target_id uuid NOT NULL,
+  rating double precision NOT NULL,
+  rated_at timestamptz NOT NULL,
+  PRIMARY KEY (target_kind, target_id)
+);
+
+CREATE TABLE watchlist (
+  target_kind text NOT NULL CHECK (target_kind IN ('movie', 'show')),
+  target_id uuid NOT NULL,
+  listed_at timestamptz NOT NULL,
+  rank integer,
   PRIMARY KEY (target_kind, target_id)
 );
 
 CREATE TABLE webhook_events (
-  id BIGSERIAL PRIMARY KEY,
-  received_at TEXT NOT NULL,
-  event TEXT NOT NULL,
-  account TEXT,
-  player TEXT,
-  media_type TEXT,
-  title TEXT,
-  outcome TEXT NOT NULL,
-  payload TEXT NOT NULL
+  id uuid PRIMARY KEY DEFAULT uuidv7(),
+  received_at timestamptz NOT NULL,
+  event text NOT NULL,
+  account text,
+  player text,
+  media_type text,
+  title text,
+  outcome text NOT NULL,
+  payload text NOT NULL
 );
 CREATE INDEX webhook_events_received_at ON webhook_events (received_at);

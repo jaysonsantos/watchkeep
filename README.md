@@ -70,11 +70,6 @@ certificates, and no shell. `watchkeep health` is the Docker health check.
 A version tag (`v1.2.3`) publishes `ghcr.io/<owner>/watchkeep` for
 `linux/amd64` and `linux/arm64`, tagged `1.2.3`, `1.2`, and `latest`.
 
-A database from the Node version of Watchkeep keeps working. The first start
-adopts its `schema_migrations` table, converts the serial ids to UUIDs that
-keep the creation order, converts the text timestamps to `timestamptz`, and
-continues with the sqlx migrations.
-
 ## Connect Plex
 
 Plex webhooks need a Plex Pass subscription.
