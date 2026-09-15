@@ -19,6 +19,7 @@ pub mod env {
     pub const WATCHED_THRESHOLD_PERCENT: &str = "WATCHKEEP_WATCHED_THRESHOLD_PERCENT";
     pub const REWATCH_WINDOW_MINUTES: &str = "WATCHKEEP_REWATCH_WINDOW_MINUTES";
     pub const PLEX_ACCOUNTS: &str = "WATCHKEEP_PLEX_ACCOUNTS";
+    pub const SCROBBLE_ACCOUNTS: &str = "WATCHKEEP_SCROBBLE_ACCOUNTS";
     pub const PLEX_URL: &str = "WATCHKEEP_PLEX_URL";
     pub const PLEX_TOKEN: &str = "WATCHKEEP_PLEX_TOKEN";
     pub const SYNC_INTERVAL_MINUTES: &str = "WATCHKEEP_SYNC_INTERVAL_MINUTES";
@@ -54,7 +55,7 @@ pub mod defaults {
 const SECONDS_PER_MINUTE: u64 = 60;
 const SECONDS_PER_DAY: u64 = 24 * 60 * SECONDS_PER_MINUTE;
 
-/// Separator of `WATCHKEEP_PLEX_ACCOUNTS`.
+/// Separator of `WATCHKEEP_PLEX_ACCOUNTS` and `WATCHKEEP_SCROBBLE_ACCOUNTS`.
 const LIST_SEPARATOR: char = ',';
 
 fn duration_of(text: &str, unit_seconds: u64, unit: &str) -> Result<Duration, String> {
@@ -86,6 +87,15 @@ fn plain_url(text: &str) -> Result<String, String> {
     Ok(text.trim().trim_end_matches('/').to_owned())
 }
 
+/// The entries of an account list, without blanks.
+fn accepted(accounts: &[String]) -> Vec<&str> {
+    accounts
+        .iter()
+        .map(|account| account.trim())
+        .filter(|account| !account.is_empty())
+        .collect()
+}
+
 #[derive(Args, Clone, Debug)]
 pub struct Config {
     /// Listen address.
@@ -112,7 +122,7 @@ pub struct Config {
     #[arg(long, env = env::IMAGE_BASE_URL, default_value = defaults::IMAGE_BASE_URL, value_parser = base_url)]
     pub image_base_url: String,
 
-    /// Token that Plex must send as `?token=` on the webhook URL. Empty accepts any caller.
+    /// Token that a sender must put in `?token=` or in `x-webhook-token`. Empty accepts any caller.
     #[arg(long, env = env::WEBHOOK_TOKEN, default_value = "")]
     pub webhook_token: String,
 
@@ -127,6 +137,10 @@ pub struct Config {
     /// Plex account titles or ids to accept, comma-separated. Empty accepts every account.
     #[arg(long, env = env::PLEX_ACCOUNTS, value_delimiter = LIST_SEPARATOR)]
     pub plex_accounts: Vec<String>,
+
+    /// Accounts to accept on the generic scrobble webhook, comma-separated. Empty accepts every account.
+    #[arg(long, env = env::SCROBBLE_ACCOUNTS, value_delimiter = LIST_SEPARATOR)]
+    pub scrobble_accounts: Vec<String>,
 
     /// Plex server URL for the library sync, for example http://plex:32400.
     #[arg(long, env = env::PLEX_URL, default_value = "", value_parser = plain_url)]
@@ -171,6 +185,7 @@ impl Default for Config {
             watched_threshold_percent: defaults::WATCHED_THRESHOLD_PERCENT,
             rewatch_window: minutes(defaults::REWATCH_WINDOW_MINUTES).expect("a number"),
             plex_accounts: Vec::new(),
+            scrobble_accounts: Vec::new(),
             plex_url: String::new(),
             plex_token: String::new(),
             sync_interval: minutes(defaults::SYNC_INTERVAL_MINUTES).expect("a number"),
@@ -189,11 +204,12 @@ impl Config {
 
     /// The accepted Plex accounts, without blanks. Empty accepts every account.
     pub fn accepted_accounts(&self) -> Vec<&str> {
-        self.plex_accounts
-            .iter()
-            .map(|account| account.trim())
-            .filter(|account| !account.is_empty())
-            .collect()
+        accepted(&self.plex_accounts)
+    }
+
+    /// The accepted scrobble accounts, without blanks. Empty accepts every account.
+    pub fn accepted_scrobble_accounts(&self) -> Vec<&str> {
+        accepted(&self.scrobble_accounts)
     }
 }
 
@@ -213,7 +229,7 @@ pub struct Cli {
 
 #[derive(Subcommand, Clone, Debug)]
 pub enum Command {
-    /// Serve the web UI, the JSON API, and the Plex webhook. The default.
+    /// Serve the web UI, the JSON API, and the webhooks. The default.
     Serve,
     /// Run a Plex library sync and print the report as JSON.
     Sync,

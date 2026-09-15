@@ -429,6 +429,23 @@ impl<C: DerefMut<Target = PgConnection>> Library<C> {
         .await?)
     }
 
+    /// The play that a source already recorded under this external id.
+    pub async fn play_by_external_id(
+        &mut self,
+        source: PlaySource,
+        external_id: &str,
+    ) -> Result<Option<PlayRow>> {
+        Ok(sqlx::query_as!(
+            PlayRow,
+            r#"SELECT id, target_kind AS "target_kind: TargetKind", target_id, watched_at, source, account, player, external_id
+               FROM plays WHERE source = $1 AND external_id = $2"#,
+            source.as_str(),
+            external_id
+        )
+        .fetch_optional(self.conn())
+        .await?)
+    }
+
     /// Insert a play. With `external_id`, a play that already exists for the same
     /// source and id is skipped and `None` is returned.
     pub async fn record_play(&mut self, input: PlayInput) -> Result<Option<PlayRow>> {

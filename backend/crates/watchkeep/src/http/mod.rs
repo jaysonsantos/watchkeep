@@ -1,4 +1,4 @@
-//! Axum routes for the JSON API and the Plex webhook, plus the error type and
+//! Axum routes for the JSON API and the webhooks, plus the error type and
 //! the response bodies they share.
 
 pub mod api;
@@ -13,7 +13,7 @@ use serde::Serialize;
 pub mod header {
     /// The number of matches before `limit` and `offset`, on list routes.
     pub const TOTAL_COUNT: &str = "x-total-count";
-    /// An alternative to `?token=` on the webhook URL.
+    /// An alternative to `?token=` on the webhook URLs.
     pub const WEBHOOK_TOKEN: &str = "x-webhook-token";
 }
 

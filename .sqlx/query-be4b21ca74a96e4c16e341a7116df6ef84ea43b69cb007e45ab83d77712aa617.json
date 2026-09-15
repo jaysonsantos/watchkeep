@@ -1,0 +1,113 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, target_kind AS \"target_kind: TargetKind\", target_id, watched_at, source, account, player, external_id\n               FROM plays WHERE source = $1 AND external_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "plays",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "target_kind: TargetKind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "plays",
+            "name": "target_kind"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "target_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "plays",
+            "name": "target_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "watched_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "plays",
+            "name": "watched_at"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "source",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "plays",
+            "name": "source"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "account",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "plays",
+            "name": "account"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "player",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "plays",
+            "name": "player"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "external_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "plays",
+            "name": "external_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "be4b21ca74a96e4c16e341a7116df6ef84ea43b69cb007e45ab83d77712aa617"
+}
