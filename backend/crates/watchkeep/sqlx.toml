@@ -1,0 +1,3 @@
+# The integration tests check the migrated schema with the query macros.
+[common]
+database-url-var = "WATCHKEEP_DATABASE_URL"

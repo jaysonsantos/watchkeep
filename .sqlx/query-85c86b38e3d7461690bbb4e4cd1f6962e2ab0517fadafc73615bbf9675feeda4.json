@@ -1,0 +1,148 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, imdb_id, title_en, title_pt, original_title, release_date, runtime, poster_path_en, poster_path_pt, overview_en, overview_pt\n             FROM tmdb_movie WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "tmdb_movie",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "imdb_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_movie",
+            "name": "imdb_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "title_en",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_movie",
+            "name": "title_en"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "title_pt",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_movie",
+            "name": "title_pt"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "original_title",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_movie",
+            "name": "original_title"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "release_date",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_movie",
+            "name": "release_date"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "runtime",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "tmdb_movie",
+            "name": "runtime"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "poster_path_en",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_movie",
+            "name": "poster_path_en"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "poster_path_pt",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_movie",
+            "name": "poster_path_pt"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "overview_en",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_movie",
+            "name": "overview_en"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "overview_pt",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_movie",
+            "name": "overview_pt"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "85c86b38e3d7461690bbb4e4cd1f6962e2ab0517fadafc73615bbf9675feeda4"
+}

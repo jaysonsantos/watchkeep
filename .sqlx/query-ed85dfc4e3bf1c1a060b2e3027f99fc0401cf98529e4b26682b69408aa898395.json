@@ -1,0 +1,183 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO episodes (id, show_id, season, number, title, plex_guid, imdb_id, tmdb_id, tvdb_id, duration_ms, aired_at, created_at, updated_at)\n             SELECT u.id, u.show_id, u.season, u.number, u.title, u.plex_guid, u.imdb_id, u.tmdb_id, u.tvdb_id, u.duration_ms, u.aired_at, $12::timestamptz, $12::timestamptz\n             FROM UNNEST($1::uuid[], $2::uuid[], $3::int[], $4::int[], $5::text[], $6::text[], $7::text[], $8::bigint[], $9::text[], $10::bigint[], $11::date[])\n               WITH ORDINALITY AS u(id, show_id, season, number, title, plex_guid, imdb_id, tmdb_id, tvdb_id, duration_ms, aired_at, ord)\n             ORDER BY u.ord\n             RETURNING id, show_id, season, number, title, plex_guid, imdb_id, tmdb_id, tvdb_id, duration_ms, aired_at, created_at, updated_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "episodes",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "show_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "episodes",
+            "name": "show_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "season",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "episodes",
+            "name": "season"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "number",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "episodes",
+            "name": "number"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "title",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "episodes",
+            "name": "title"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "plex_guid",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "episodes",
+            "name": "plex_guid"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "imdb_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "episodes",
+            "name": "imdb_id"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "tmdb_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "episodes",
+            "name": "tmdb_id"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "tvdb_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "episodes",
+            "name": "tvdb_id"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "duration_ms",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "episodes",
+            "name": "duration_ms"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "aired_at",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "episodes",
+            "name": "aired_at"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "episodes",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "episodes",
+            "name": "updated_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "UuidArray",
+        "Int4Array",
+        "Int4Array",
+        "TextArray",
+        "TextArray",
+        "TextArray",
+        "Int8Array",
+        "TextArray",
+        "Int8Array",
+        "DateArray",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "ed85dfc4e3bf1c1a060b2e3027f99fc0401cf98529e4b26682b69408aa898395"
+}

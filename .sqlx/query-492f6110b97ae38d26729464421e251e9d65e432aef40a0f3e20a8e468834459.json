@@ -1,0 +1,36 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT se.show_id, COUNT(*) AS \"count!\"\n               FROM tmdb_episode e JOIN tmdb_season se ON se.id = e.season_id\n               WHERE se.show_id = ANY($1) AND se.season_number > 0 AND (e.air_date IS NULL OR e.air_date <= $2)\n               GROUP BY se.show_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "show_id",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "tmdb_season",
+            "name": "show_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4Array",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "492f6110b97ae38d26729464421e251e9d65e432aef40a0f3e20a8e468834459"
+}

@@ -1,0 +1,8 @@
+# typos: spell check of code and docs. Run with `typos` or through prek.
+[default]
+# TMDB poster paths are random letters.
+extend-ignore-re = ["/[A-Za-z0-9]{20,}\\.jpg"]
+
+[default.extend-words]
+# Portuguese title of Collateral in the test catalog.
+Colateral = "Colateral"

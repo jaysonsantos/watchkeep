@@ -1,14 +1,27 @@
-import adapter from "@sveltejs/adapter-node";
+import adapter from "@sveltejs/adapter-static";
+
+/** The frontend sources live here. The manifest and the tool configs live at the repository root. */
+const FRONTEND = "frontend";
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
   kit: {
-    // The server reads WATCHKEEP_HTTP_ORIGIN and the other adapter variables. The adapter rejects unknown
-    // variables with its prefix, so the prefix cannot be WATCHKEEP_. `main.ts serve` maps WATCHKEEP_HOST and WATCHKEEP_PORT.
-    adapter: adapter({ envPrefix: "WATCHKEEP_HTTP_" }),
-    // Plex posts multipart forms without an Origin header, so the built-in check must be off.
-    // `src/hooks.server.ts` checks the origin of form posts to the UI pages instead.
-    csrf: { trustedOrigins: ["*"] },
+    // The Rust server serves `frontend/build` and answers every unknown path with `index.html`,
+    // so the app runs as a single-page app that talks to `/api`.
+    adapter: adapter({ pages: `${FRONTEND}/build`, assets: `${FRONTEND}/build`, fallback: "index.html" }),
+    files: {
+      appTemplate: `${FRONTEND}/src/app.html`,
+      assets: `${FRONTEND}/static`,
+      errorTemplate: `${FRONTEND}/src/error.html`,
+      hooks: {
+        client: `${FRONTEND}/src/hooks.client`,
+        server: `${FRONTEND}/src/hooks.server`,
+        universal: `${FRONTEND}/src/hooks`,
+      },
+      lib: `${FRONTEND}/src/lib`,
+      routes: `${FRONTEND}/src/routes`,
+      serviceWorker: `${FRONTEND}/src/service-worker`,
+    },
   },
 };
 

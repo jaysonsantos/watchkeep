@@ -1,0 +1,3 @@
+# The query macros of this crate check their SQL against the Watchkeep database.
+[common]
+database-url-var = "WATCHKEEP_DATABASE_URL"

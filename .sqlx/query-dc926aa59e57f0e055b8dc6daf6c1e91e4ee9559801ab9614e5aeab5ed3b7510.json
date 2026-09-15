@@ -1,0 +1,27 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COUNT(*) AS \"count!\" FROM (\n                 SELECT m.id FROM media m\n                 LEFT JOIN plays p ON p.target_kind = $2 AND p.target_id = m.id\n                 WHERE m.kind = $1 AND ($3::text = '' OR m.title ILIKE '%' || $3 || '%')\n                 GROUP BY m.id\n                 HAVING (NOT $4::bool OR COUNT(p.id) > 0) AND (NOT $5::bool OR COUNT(p.id) = 0)\n               ) matched",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Bool",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "dc926aa59e57f0e055b8dc6daf6c1e91e4ee9559801ab9614e5aeab5ed3b7510"
+}

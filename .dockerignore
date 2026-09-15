@@ -1,9 +1,9 @@
+target
 node_modules
-dist
-build
+frontend/build
 .svelte-kit
+.direnv
+result
 data
 .git
 .env
-*.db
-*.sqlite

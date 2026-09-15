@@ -1,0 +1,173 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, imdb_id, tvdb_id, name_en, name_pt, original_name, first_air_date, poster_path_en, poster_path_pt, overview_en, overview_pt, number_of_seasons, number_of_episodes\n             FROM tmdb_show\n             WHERE name_en ILIKE '%' || $1 || '%' OR name_pt ILIKE '%' || $1 || '%' OR original_name ILIKE '%' || $1 || '%'\n             ORDER BY (lower(name_en) = lower($1) OR lower(name_pt) = lower($1)) DESC, vote_count DESC NULLS LAST, first_air_date DESC NULLS LAST\n             LIMIT $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "tmdb_show",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "imdb_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_show",
+            "name": "imdb_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "tvdb_id",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "tmdb_show",
+            "name": "tvdb_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "name_en",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_show",
+            "name": "name_en"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "name_pt",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_show",
+            "name": "name_pt"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "original_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_show",
+            "name": "original_name"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "first_air_date",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_show",
+            "name": "first_air_date"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "poster_path_en",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_show",
+            "name": "poster_path_en"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "poster_path_pt",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_show",
+            "name": "poster_path_pt"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "overview_en",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_show",
+            "name": "overview_en"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "overview_pt",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_show",
+            "name": "overview_pt"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "number_of_seasons",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "tmdb_show",
+            "name": "number_of_seasons"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "number_of_episodes",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "tmdb_show",
+            "name": "number_of_episodes"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "90c54100ed460348099dfe67029e50983e79fc73c292d5b9ac21b3f0236a6463"
+}

@@ -1,0 +1,100 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT e.id, se.season_number, e.episode_number, e.name, e.air_date, e.runtime, e.still_path\n             FROM tmdb_episode e JOIN tmdb_season se ON se.id = e.season_id\n             WHERE se.show_id = $1 ORDER BY se.season_number, e.episode_number",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "tmdb_episode",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "season_number",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "tmdb_season",
+            "name": "season_number"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "episode_number",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "tmdb_episode",
+            "name": "episode_number"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_episode",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "air_date",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_episode",
+            "name": "air_date"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "runtime",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "tmdb_episode",
+            "name": "runtime"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "still_path",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_episode",
+            "name": "still_path"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "3d59a5f22775932829b2c63119a249af19d97d172c61193280c5217ee0730745"
+}

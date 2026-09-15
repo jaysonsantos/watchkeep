@@ -1,13 +1,9 @@
+/target/
 node_modules/
-dist/
-build/
-.svelte-kit/
+/frontend/build/
+/.svelte-kit/
 data/
-*.db
-*.db-journal
-*.db-wal
-*.db-shm
 .env
 .envrc
 .direnv/
-*.sqlite
+result

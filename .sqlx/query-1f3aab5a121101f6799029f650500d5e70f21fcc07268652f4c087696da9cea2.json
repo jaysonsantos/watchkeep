@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE episodes AS e SET title = u.title, plex_guid = u.plex_guid, imdb_id = u.imdb_id, tmdb_id = u.tmdb_id, tvdb_id = u.tvdb_id,\n               duration_ms = u.duration_ms, aired_at = u.aired_at, updated_at = u.updated_at\n             FROM UNNEST($1::uuid[], $2::text[], $3::text[], $4::text[], $5::bigint[], $6::text[], $7::bigint[], $8::date[], $9::timestamptz[])\n               AS u(id, title, plex_guid, imdb_id, tmdb_id, tvdb_id, duration_ms, aired_at, updated_at)\n             WHERE e.id = u.id",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "TextArray",
+        "TextArray",
+        "TextArray",
+        "Int8Array",
+        "TextArray",
+        "Int8Array",
+        "DateArray",
+        "TimestamptzArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1f3aab5a121101f6799029f650500d5e70f21fcc07268652f4c087696da9cea2"
+}
