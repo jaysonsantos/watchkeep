@@ -1,12 +1,12 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, imdb_id, tvdb_id, name_en, name_pt, original_name, first_air_date, poster_path_en, poster_path_pt, overview_en, overview_pt, number_of_seasons, number_of_episodes\n             FROM tmdb_show WHERE id = ANY($1)",
+  "query": "SELECT id, imdb_id, tvdb_id, name_en, name_pt, original_name, first_air_date, poster_path_en, poster_path_pt, overview_en, overview_pt, number_of_seasons::int AS number_of_seasons, number_of_episodes::int AS number_of_episodes\n             FROM tmdb_show WHERE imdb_id = ANY($1)",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
         "name": "id",
-        "type_info": "Int4",
+        "type_info": "Int8",
         "origin": {
           "Table": {
             "table": "tmdb_show",
@@ -28,7 +28,7 @@
       {
         "ordinal": 2,
         "name": "tvdb_id",
-        "type_info": "Int4",
+        "type_info": "Int8",
         "origin": {
           "Table": {
             "table": "tmdb_show",
@@ -128,28 +128,18 @@
         "ordinal": 11,
         "name": "number_of_seasons",
         "type_info": "Int4",
-        "origin": {
-          "Table": {
-            "table": "tmdb_show",
-            "name": "number_of_seasons"
-          }
-        }
+        "origin": "Expression"
       },
       {
         "ordinal": 12,
         "name": "number_of_episodes",
         "type_info": "Int4",
-        "origin": {
-          "Table": {
-            "table": "tmdb_show",
-            "name": "number_of_episodes"
-          }
-        }
+        "origin": "Expression"
       }
     ],
     "parameters": {
       "Left": [
-        "Int4Array"
+        "TextArray"
       ]
     },
     "nullable": [
@@ -164,9 +154,9 @@
       true,
       true,
       true,
-      true,
-      true
+      null,
+      null
     ]
   },
-  "hash": "c88aca505bd93e732ee375b905a6c220154aed0ac1e46b14b83acfba4b0a40e9"
+  "hash": "2985f2943d029c45cafab783a5caaf36df319d501e728224796f78284c6d4269"
 }

@@ -6,7 +6,7 @@
       {
         "ordinal": 0,
         "name": "show_id",
-        "type_info": "Int4",
+        "type_info": "Int8",
         "origin": {
           "Table": {
             "table": "tmdb_season",
@@ -23,7 +23,7 @@
     ],
     "parameters": {
       "Left": [
-        "Int4Array",
+        "Int8Array",
         "Text"
       ]
     },

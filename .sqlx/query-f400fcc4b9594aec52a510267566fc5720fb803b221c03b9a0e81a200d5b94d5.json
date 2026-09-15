@@ -1,12 +1,12 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, imdb_id, title_en, title_pt, original_title, release_date, runtime, poster_path_en, poster_path_pt, overview_en, overview_pt\n             FROM tmdb_movie WHERE imdb_id = ANY($1)",
+  "query": "SELECT id, imdb_id, title_en, title_pt, original_title, release_date, runtime::int AS runtime, poster_path_en, poster_path_pt, overview_en, overview_pt\n             FROM tmdb_movie WHERE id = ANY($1)",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
         "name": "id",
-        "type_info": "Int4",
+        "type_info": "Int8",
         "origin": {
           "Table": {
             "table": "tmdb_movie",
@@ -73,12 +73,7 @@
         "ordinal": 6,
         "name": "runtime",
         "type_info": "Int4",
-        "origin": {
-          "Table": {
-            "table": "tmdb_movie",
-            "name": "runtime"
-          }
-        }
+        "origin": "Expression"
       },
       {
         "ordinal": 7,
@@ -127,7 +122,7 @@
     ],
     "parameters": {
       "Left": [
-        "TextArray"
+        "Int8Array"
       ]
     },
     "nullable": [
@@ -137,12 +132,12 @@
       true,
       true,
       true,
-      true,
+      null,
       true,
       true,
       true,
       true
     ]
   },
-  "hash": "58afc5664b3cba6a7fbed6d1b7483720a03816c8edf2f133a8342e9acc09929b"
+  "hash": "f400fcc4b9594aec52a510267566fc5720fb803b221c03b9a0e81a200d5b94d5"
 }

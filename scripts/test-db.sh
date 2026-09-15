@@ -12,7 +12,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_dir="$(dirname "$script_dir")"
 
 if [[ -z "${WATCHKEEP_TEST_DATABASE_URL:-}" ]]; then
-  IMAGE="${WATCHKEEP_TEST_POSTGRES_IMAGE:-postgres:18-alpine}"
+  IMAGE="${WATCHKEEP_TEST_POSTGRES_IMAGE:-ghcr.io/jaysonsantos/bunderwar:postgres-17.10}"
   NAME="watchkeep-test-$$-$RANDOM"
   CONTAINER=$(docker run -d --rm --name "$NAME" -e POSTGRES_PASSWORD=postgres -p 127.0.0.1::5432 "$IMAGE")
   cleanup() { docker rm -f "$CONTAINER" >/dev/null 2>&1 || true; }
@@ -22,13 +22,15 @@ if [[ -z "${WATCHKEEP_TEST_DATABASE_URL:-}" ]]; then
   export WATCHKEEP_TEST_DATABASE_URL="postgres://postgres:postgres@127.0.0.1:${PORT}/postgres"
   export WATCHKEEP_TEST_CONTAINER="$CONTAINER"
 
-  for _ in $(seq 1 60); do
-    if docker exec "$CONTAINER" pg_isready -U postgres -q 2>/dev/null; then
+  # The image creates its extensions on the first start, which takes a while. The check goes over
+  # TCP: during that phase a temporary server answers on the socket only.
+  for _ in $(seq 1 240); do
+    if docker exec "$CONTAINER" pg_isready -U postgres -h 127.0.0.1 -q 2>/dev/null; then
       break
     fi
     sleep 0.5
   done
-  docker exec "$CONTAINER" pg_isready -U postgres -q
+  docker exec "$CONTAINER" pg_isready -U postgres -h 127.0.0.1 -q
 fi
 
 # Databases for the query macros, so that `cargo build` checks the SQL against the current schemas.

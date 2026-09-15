@@ -1,12 +1,12 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT se.show_id, e.id, se.season_number, e.episode_number, e.name, e.air_date, e.runtime, e.still_path\n             FROM tmdb_episode e JOIN tmdb_season se ON se.id = e.season_id\n             WHERE se.show_id = ANY($1)",
+  "query": "SELECT se.show_id, e.id, se.season_number::int AS \"season_number!\", e.episode_number::int AS \"episode_number!\",\n                      e.name, e.air_date, e.runtime::int AS runtime, e.still_path\n               FROM tmdb_episode e JOIN tmdb_season se ON se.id = e.season_id\n               WHERE se.show_id = ANY($1)",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
         "name": "show_id",
-        "type_info": "Int4",
+        "type_info": "Int8",
         "origin": {
           "Table": {
             "table": "tmdb_season",
@@ -17,7 +17,7 @@
       {
         "ordinal": 1,
         "name": "id",
-        "type_info": "Int4",
+        "type_info": "Int8",
         "origin": {
           "Table": {
             "table": "tmdb_episode",
@@ -27,25 +27,15 @@
       },
       {
         "ordinal": 2,
-        "name": "season_number",
+        "name": "season_number!",
         "type_info": "Int4",
-        "origin": {
-          "Table": {
-            "table": "tmdb_season",
-            "name": "season_number"
-          }
-        }
+        "origin": "Expression"
       },
       {
         "ordinal": 3,
-        "name": "episode_number",
+        "name": "episode_number!",
         "type_info": "Int4",
-        "origin": {
-          "Table": {
-            "table": "tmdb_episode",
-            "name": "episode_number"
-          }
-        }
+        "origin": "Expression"
       },
       {
         "ordinal": 4,
@@ -73,12 +63,7 @@
         "ordinal": 6,
         "name": "runtime",
         "type_info": "Int4",
-        "origin": {
-          "Table": {
-            "table": "tmdb_episode",
-            "name": "runtime"
-          }
-        }
+        "origin": "Expression"
       },
       {
         "ordinal": 7,
@@ -94,19 +79,19 @@
     ],
     "parameters": {
       "Left": [
-        "Int4Array"
+        "Int8Array"
       ]
     },
     "nullable": [
       false,
       false,
-      false,
-      false,
+      null,
+      null,
       true,
       true,
-      true,
+      null,
       true
     ]
   },
-  "hash": "40e31f147d7293b423956f45260eb2678c93fcfd306b12a06e6d28281a10a7f8"
+  "hash": "763c70f4c035b4718c643bcd9bd03bea94abcca0099151d9f4bcbdfdcdca367f"
 }

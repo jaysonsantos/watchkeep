@@ -1,10 +1,12 @@
--- The Watchkeep schema. Ids are UUID v7 from the server (PostgreSQL 18 uuidv7()),
--- so they sort by creation time. Timestamps are timestamptz and air dates are
+-- The Watchkeep schema. Ids are UUID v7 from the server: the pg_uuidv7
+-- extension (PostgreSQL 17 or newer), so they sort by creation time. Timestamps are timestamptz and air dates are
 -- date. Durations and positions are milliseconds. The words of the text columns
 -- are the values of the text enums in model.rs.
 
+CREATE EXTENSION IF NOT EXISTS pg_uuidv7;
+
 CREATE TABLE media (
-  id uuid PRIMARY KEY DEFAULT uuidv7(),
+  id uuid PRIMARY KEY DEFAULT uuid_generate_v7(),
   kind text NOT NULL CHECK (kind IN ('movie', 'show')),
   title text NOT NULL,
   year integer,
@@ -27,7 +29,7 @@ CREATE UNIQUE INDEX media_kind_tvdb ON media (kind, tvdb_id) WHERE tvdb_id IS NO
 CREATE INDEX media_kind_title ON media (kind, lower(title));
 
 CREATE TABLE episodes (
-  id uuid PRIMARY KEY DEFAULT uuidv7(),
+  id uuid PRIMARY KEY DEFAULT uuid_generate_v7(),
   show_id uuid NOT NULL REFERENCES media (id) ON DELETE CASCADE,
   season integer NOT NULL,
   number integer NOT NULL,
@@ -46,7 +48,7 @@ CREATE UNIQUE INDEX episodes_plex_guid ON episodes (plex_guid) WHERE plex_guid I
 CREATE UNIQUE INDEX episodes_tmdb ON episodes (tmdb_id) WHERE tmdb_id IS NOT NULL;
 
 CREATE TABLE plays (
-  id uuid PRIMARY KEY DEFAULT uuidv7(),
+  id uuid PRIMARY KEY DEFAULT uuid_generate_v7(),
   target_kind text NOT NULL CHECK (target_kind IN ('movie', 'episode')),
   target_id uuid NOT NULL,
   watched_at timestamptz NOT NULL,
@@ -89,7 +91,7 @@ CREATE TABLE watchlist (
 );
 
 CREATE TABLE webhook_events (
-  id uuid PRIMARY KEY DEFAULT uuidv7(),
+  id uuid PRIMARY KEY DEFAULT uuid_generate_v7(),
   received_at timestamptz NOT NULL,
   event text NOT NULL,
   account text,
