@@ -30,7 +30,7 @@ use crate::plex::sync::{DEFAULT_PAGE_SIZE, SyncOptions, SyncReport, sync_plex_li
 use crate::scrobble::Scrobbler;
 use crate::views::Views;
 
-/// The path prefix of the Plex webhook. The origin check skips it.
+/// The path prefix of the webhooks. The origin check skips it.
 const WEBHOOK_PREFIX: &str = "/webhook";
 const API_PREFIX: &str = "/api";
 pub const HEALTH_PATH: &str = "/healthz";

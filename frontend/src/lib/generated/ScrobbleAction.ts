@@ -2,5 +2,7 @@
 
 /**
  * What the scrobbler did with an event. The text is the `outcome` of the webhook log.
+ * `duplicate-event` means the sender delivered the same `event_id` before,
+ * and `stale-event` means the event is older than the stored position.
  */
-export type ScrobbleAction = "progress" | "play" | "duplicate-play" | "rating" | "ignored-account";
+export type ScrobbleAction = "progress" | "play" | "duplicate-play" | "duplicate-event" | "stale-event" | "unwatched" | "rating" | "ignored-account";
