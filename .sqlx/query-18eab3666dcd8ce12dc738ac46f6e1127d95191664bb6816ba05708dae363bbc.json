@@ -1,12 +1,12 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, imdb_id, title_en, title_pt, original_title, release_date, runtime, poster_path_en, poster_path_pt, overview_en, overview_pt\n             FROM tmdb_movie\n             WHERE (lower(title_en) = lower($1) OR lower(title_pt) = lower($1) OR lower(original_title) = lower($1))\n               AND ($2::int IS NULL OR substr(release_date, 1, 4) IN ($3, $4, $5))\n             ORDER BY (substr(release_date, 1, 4) = $3) DESC, vote_count DESC NULLS LAST LIMIT 1",
+  "query": "SELECT id, imdb_id, title_en, title_pt, original_title, release_date, runtime::int AS runtime, poster_path_en, poster_path_pt, overview_en, overview_pt\n             FROM tmdb_movie\n             WHERE (lower(title_en) = lower($1) OR lower(title_pt) = lower($1) OR lower(original_title) = lower($1))\n               AND ($2::int IS NULL OR substr(release_date, 1, 4) IN ($3, $4, $5))\n             ORDER BY (substr(release_date, 1, 4) = $3) DESC, vote_count DESC NULLS LAST LIMIT 1",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
         "name": "id",
-        "type_info": "Int4",
+        "type_info": "Int8",
         "origin": {
           "Table": {
             "table": "tmdb_movie",
@@ -73,12 +73,7 @@
         "ordinal": 6,
         "name": "runtime",
         "type_info": "Int4",
-        "origin": {
-          "Table": {
-            "table": "tmdb_movie",
-            "name": "runtime"
-          }
-        }
+        "origin": "Expression"
       },
       {
         "ordinal": 7,
@@ -141,12 +136,12 @@
       true,
       true,
       true,
-      true,
+      null,
       true,
       true,
       true,
       true
     ]
   },
-  "hash": "f6c2695ca3b11c50e40236b4d64ddc5b1e3fb59e97296721aafe07cac2aabc8d"
+  "hash": "18eab3666dcd8ce12dc738ac46f6e1127d95191664bb6816ba05708dae363bbc"
 }

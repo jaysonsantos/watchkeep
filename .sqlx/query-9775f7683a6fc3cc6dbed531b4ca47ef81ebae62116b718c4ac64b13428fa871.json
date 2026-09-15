@@ -1,12 +1,12 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, imdb_id, tvdb_id, name_en, name_pt, original_name, first_air_date, poster_path_en, poster_path_pt, overview_en, overview_pt, number_of_seasons, number_of_episodes\n             FROM tmdb_show\n             WHERE (lower(name_en) = lower($1) OR lower(name_pt) = lower($1) OR lower(original_name) = lower($1))\n               AND ($2::int IS NULL OR substr(first_air_date, 1, 4) = $3)\n             ORDER BY vote_count DESC NULLS LAST LIMIT 1",
+  "query": "SELECT s.id, s.imdb_id, s.tvdb_id, s.name_en, s.name_pt, s.original_name, s.first_air_date, s.poster_path_en,\n                    s.poster_path_pt, s.overview_en, s.overview_pt,\n                    s.number_of_seasons::int AS number_of_seasons, s.number_of_episodes::int AS number_of_episodes,\n                    se.season_number::int AS \"season_number!\", e.episode_number::int AS \"episode_number!\"\n             FROM tmdb_episode e\n             JOIN tmdb_season se ON se.id = e.season_id\n             JOIN tmdb_show s ON s.id = se.show_id\n             WHERE e.id = $1",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
         "name": "id",
-        "type_info": "Int4",
+        "type_info": "Int8",
         "origin": {
           "Table": {
             "table": "tmdb_show",
@@ -28,7 +28,7 @@
       {
         "ordinal": 2,
         "name": "tvdb_id",
-        "type_info": "Int4",
+        "type_info": "Int8",
         "origin": {
           "Table": {
             "table": "tmdb_show",
@@ -128,30 +128,30 @@
         "ordinal": 11,
         "name": "number_of_seasons",
         "type_info": "Int4",
-        "origin": {
-          "Table": {
-            "table": "tmdb_show",
-            "name": "number_of_seasons"
-          }
-        }
+        "origin": "Expression"
       },
       {
         "ordinal": 12,
         "name": "number_of_episodes",
         "type_info": "Int4",
-        "origin": {
-          "Table": {
-            "table": "tmdb_show",
-            "name": "number_of_episodes"
-          }
-        }
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 13,
+        "name": "season_number!",
+        "type_info": "Int4",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 14,
+        "name": "episode_number!",
+        "type_info": "Int4",
+        "origin": "Expression"
       }
     ],
     "parameters": {
       "Left": [
-        "Text",
-        "Int4",
-        "Text"
+        "Int8"
       ]
     },
     "nullable": [
@@ -166,9 +166,11 @@
       true,
       true,
       true,
-      true,
-      true
+      null,
+      null,
+      null,
+      null
     ]
   },
-  "hash": "de1a349745bc736e8ec81f56611e97274c488b956e00936055fa7b659c9e901e"
+  "hash": "9775f7683a6fc3cc6dbed531b4ca47ef81ebae62116b718c4ac64b13428fa871"
 }

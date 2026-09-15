@@ -26,7 +26,8 @@ the web UI.
 ## Architecture
 
 Watchkeep uses two PostgreSQL databases on the same instance. The server
-needs PostgreSQL 18 or newer, which provides `uuidv7()`.
+needs PostgreSQL 17 or newer with the `pg_uuidv7` extension. The
+`ghcr.io/jaysonsantos/bunderwar:postgres-*` images have it.
 
 | Database | Owner | Content |
 |---|---|---|
@@ -37,7 +38,10 @@ The catalog is optional. Without it, Watchkeep tracks only the items that Plex
 reported. With it, Watchkeep resolves TMDB, IMDb, and TVDB ids, posters,
 runtimes, and the complete episode list of each show.
 
-The catalog tables are defined in `catalog/schema.sql`. Any tool that fills them works.
+The catalog tables are defined in `catalog/schema.sql`. That file is the
+contract of a central TMDB database: one tool mirrors TMDB into it, and every
+app that needs TMDB data reads it with a read-only role. Nobody copies the
+data. Watchkeep is one of those readers.
 
 The repository has two source trees. The manifests, the lockfiles, and the tool
 configs live at the root, so `cargo` and `pnpm` run from there.
@@ -51,7 +55,7 @@ configs live at the root, so `cargo` and `pnpm` run from there.
 Every path outside `/api`, `/webhook`, and `/healthz` returns `index.html`,
 and the UI loads its data from the JSON API.
 
-Row ids are UUID v7 values from PostgreSQL's `uuidv7()`, so they sort by creation time. Timestamps are
+Row ids are UUID v7 values from `uuid_generate_v7()`, so they sort by creation time. Timestamps are
 `timestamptz` columns and RFC 3339 text in the API, for example
 `2026-01-01T12:00:00Z`. Air dates are `date` columns and `YYYY-MM-DD` text.
 Durations and positions are `*_ms` fields in milliseconds.
@@ -88,9 +92,21 @@ to a comma-separated list of account titles or ids to accept only some of them.
 
 ## Load the TMDB catalog
 
-Watchkeep does not fetch TMDB data itself. Insert rows into the tables in
-`catalog/schema.sql` with your own tool. Watchkeep only reads them, so the
-tool can run at any time, also while Watchkeep runs.
+Watchkeep does not fetch TMDB data itself. It reads a central TMDB database
+that a mirror tool fills, so that several apps share one copy. Create the
+tables from `catalog/schema.sql`, fill them with your tool, and give Watchkeep
+a read-only role. Run the grants as the role that owns the tables:
+
+```sql
+CREATE ROLE watchkeep LOGIN PASSWORD '...';
+GRANT CONNECT ON DATABASE tmdb TO watchkeep;
+GRANT USAGE ON SCHEMA public TO watchkeep;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO watchkeep;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO watchkeep;
+```
+
+Watchkeep only reads `tmdb_movie`, `tmdb_show`, `tmdb_season`, and
+`tmdb_episode`. The tool can run at any time, also while Watchkeep runs.
 
 ## Sync the Plex library
 
@@ -299,8 +315,8 @@ GitHub Actions run the same linters and tests on every push and pull request
 (`.github/workflows/release.yml`). The Dockerfile cross-compiles the arm64
 binary, so one amd64 runner builds both platforms.
 
-Without the flake: Rust 1.94 or newer, Node 24, pnpm, Docker (PostgreSQL 18
-for the tests), and sqlx-cli 0.9,
+Without the flake: Rust 1.94 or newer, Node 24, pnpm, Docker (the tests pull
+the Postgres image), and sqlx-cli 0.9,
 installed with
 `cargo install sqlx-cli --no-default-features --features postgres,rustls,sqlx-toml`.
 

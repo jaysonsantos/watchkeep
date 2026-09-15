@@ -1,15 +1,15 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, imdb_id, title_en, title_pt, original_title, release_date, runtime, poster_path_en, poster_path_pt, overview_en, overview_pt\n             FROM tmdb_movie WHERE id = ANY($1)",
+  "query": "SELECT id, imdb_id, tvdb_id, name_en, name_pt, original_name, first_air_date, poster_path_en, poster_path_pt, overview_en, overview_pt, number_of_seasons::int AS number_of_seasons, number_of_episodes::int AS number_of_episodes\n             FROM tmdb_show\n             WHERE (lower(name_en) = lower($1) OR lower(name_pt) = lower($1) OR lower(original_name) = lower($1))\n               AND ($2::int IS NULL OR substr(first_air_date, 1, 4) = $3)\n             ORDER BY vote_count DESC NULLS LAST LIMIT 1",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
         "name": "id",
-        "type_info": "Int4",
+        "type_info": "Int8",
         "origin": {
           "Table": {
-            "table": "tmdb_movie",
+            "table": "tmdb_show",
             "name": "id"
           }
         }
@@ -20,63 +20,63 @@
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "tmdb_movie",
+            "table": "tmdb_show",
             "name": "imdb_id"
           }
         }
       },
       {
         "ordinal": 2,
-        "name": "title_en",
-        "type_info": "Text",
+        "name": "tvdb_id",
+        "type_info": "Int8",
         "origin": {
           "Table": {
-            "table": "tmdb_movie",
-            "name": "title_en"
+            "table": "tmdb_show",
+            "name": "tvdb_id"
           }
         }
       },
       {
         "ordinal": 3,
-        "name": "title_pt",
+        "name": "name_en",
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "tmdb_movie",
-            "name": "title_pt"
+            "table": "tmdb_show",
+            "name": "name_en"
           }
         }
       },
       {
         "ordinal": 4,
-        "name": "original_title",
+        "name": "name_pt",
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "tmdb_movie",
-            "name": "original_title"
+            "table": "tmdb_show",
+            "name": "name_pt"
           }
         }
       },
       {
         "ordinal": 5,
-        "name": "release_date",
+        "name": "original_name",
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "tmdb_movie",
-            "name": "release_date"
+            "table": "tmdb_show",
+            "name": "original_name"
           }
         }
       },
       {
         "ordinal": 6,
-        "name": "runtime",
-        "type_info": "Int4",
+        "name": "first_air_date",
+        "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "tmdb_movie",
-            "name": "runtime"
+            "table": "tmdb_show",
+            "name": "first_air_date"
           }
         }
       },
@@ -86,7 +86,7 @@
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "tmdb_movie",
+            "table": "tmdb_show",
             "name": "poster_path_en"
           }
         }
@@ -97,7 +97,7 @@
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "tmdb_movie",
+            "table": "tmdb_show",
             "name": "poster_path_pt"
           }
         }
@@ -108,7 +108,7 @@
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "tmdb_movie",
+            "table": "tmdb_show",
             "name": "overview_en"
           }
         }
@@ -119,15 +119,29 @@
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "tmdb_movie",
+            "table": "tmdb_show",
             "name": "overview_pt"
           }
         }
+      },
+      {
+        "ordinal": 11,
+        "name": "number_of_seasons",
+        "type_info": "Int4",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 12,
+        "name": "number_of_episodes",
+        "type_info": "Int4",
+        "origin": "Expression"
       }
     ],
     "parameters": {
       "Left": [
-        "Int4Array"
+        "Text",
+        "Int4",
+        "Text"
       ]
     },
     "nullable": [
@@ -141,8 +155,10 @@
       true,
       true,
       true,
-      true
+      true,
+      null,
+      null
     ]
   },
-  "hash": "348ca04ed9f362bd1c06b9a1d8215b13c9271e8992ca8a5a094866dc26cc1666"
+  "hash": "8f7ba5adab07a6a60f9dd9848fbfdc5d248f5fa0c5a75bce99fee5329dd910ef"
 }
