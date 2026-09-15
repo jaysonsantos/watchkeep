@@ -1,7 +1,5 @@
--- TMDB catalog schema for PostgreSQL.
--- A SQLite file with the same table and column names is a valid source for
--- `pnpm catalog:import`. The import copies rows without a mapping step.
--- Watchkeep only reads these tables.
+-- TMDB catalog schema for PostgreSQL. Any tool that fills these tables works.
+-- Watchkeep only reads them.
 
 CREATE TABLE IF NOT EXISTS genre (
   id INTEGER PRIMARY KEY,

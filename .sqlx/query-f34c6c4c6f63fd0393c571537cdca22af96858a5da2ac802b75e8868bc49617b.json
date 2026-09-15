@@ -1,0 +1,38 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT target_id, rated_at FROM ratings",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "target_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "ratings",
+            "name": "target_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "rated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "ratings",
+            "name": "rated_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "f34c6c4c6f63fd0393c571537cdca22af96858a5da2ac802b75e8868bc49617b"
+}

@@ -13,5 +13,16 @@
     "noUncheckedIndexedAccess": true,
     "allowImportingTsExtensions": true,
     "types": ["node"]
-  }
+  },
+  "include": [
+    ".svelte-kit/ambient.d.ts",
+    ".svelte-kit/env.d.ts",
+    ".svelte-kit/non-ambient.d.ts",
+    ".svelte-kit/types/**/$types.d.ts",
+    "vite.config.ts",
+    "frontend/src/**/*.js",
+    "frontend/src/**/*.ts",
+    "frontend/src/**/*.svelte",
+    "frontend/test/**/*.ts"
+  ]
 }

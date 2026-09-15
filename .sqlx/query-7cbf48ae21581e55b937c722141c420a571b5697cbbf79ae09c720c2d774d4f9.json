@@ -1,0 +1,207 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT m.id, m.kind AS \"kind: MediaKind\", m.title, m.year, m.plex_guid, m.imdb_id, m.tmdb_id, m.tvdb_id,\n                      m.duration_ms, m.summary, m.poster_path, m.hidden_at, m.created_at, m.updated_at,\n                      COUNT(p.id) AS \"play_count!\",\n                      MAX(p.watched_at) AS \"last_watched_at?\",\n                      (SELECT r.rating FROM ratings r WHERE r.target_kind = $2 AND r.target_id = m.id) AS \"rating?\"\n               FROM media m\n               LEFT JOIN plays p ON p.target_kind = $2 AND p.target_id = m.id\n               WHERE m.kind = $1 AND m.id = $3\n               GROUP BY m.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "media",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "kind: MediaKind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "media",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "title",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "media",
+            "name": "title"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "year",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "media",
+            "name": "year"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "plex_guid",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "media",
+            "name": "plex_guid"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "imdb_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "media",
+            "name": "imdb_id"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "tmdb_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "media",
+            "name": "tmdb_id"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "tvdb_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "media",
+            "name": "tvdb_id"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "duration_ms",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "media",
+            "name": "duration_ms"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "summary",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "media",
+            "name": "summary"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "poster_path",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "media",
+            "name": "poster_path"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "hidden_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "media",
+            "name": "hidden_at"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "media",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "media",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "play_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 15,
+        "name": "last_watched_at?",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 16,
+        "name": "rating?",
+        "type_info": "Float8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "7cbf48ae21581e55b937c722141c420a571b5697cbbf79ae09c720c2d774d4f9"
+}

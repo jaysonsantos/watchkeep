@@ -5,38 +5,50 @@ Watchkeep is a self-hosted watch tracker with Plex webhook scrobbling. Read
 
 ## Layout
 
+The Rust sources live in `backend/crates/` and the SvelteKit sources in `frontend/`. Do not mix the two. The manifests (`Cargo.toml`, `package.json`), the lockfiles, and the tool configs (`tsconfig.json`, `svelte.config.js`, `vite.config.ts`, `biome.jsonc`, `flake.nix`, `.pre-commit-config.yaml`) live at the root, so every command runs from the root.
+
 | Path | Purpose |
 |---|---|
-| `src/routes/`, `src/lib/components/` | SvelteKit pages and components. |
-| `src/hooks.server.ts` | Opens the databases at start-up, sends `/api`, `/webhook`, and `/healthz` to the Hono app, and checks the origin of UI form posts. |
-| `src/lib/lists.ts`, `src/lib/format.ts` | Code for the server and the browser: list filter, sort, and page state, and display helpers. |
-| `src/lib/server/pages.ts` | Page data and form handling. The SvelteKit load functions and form actions call it. |
-| `src/lib/server/main.ts` | CLI entry point. Commands: `serve`, `sync`, `catalog:import <file>`, `trakt:import <zip>`. `serve` starts the SvelteKit build in `build/`. |
-| `src/lib/server/app.ts` | Builds the app context (pools, catalog, services) and the Hono app. |
-| `src/lib/server/http/` | Hono routes for the JSON API and the Plex webhook. |
-| `src/lib/server/db.ts` | Postgres pool, migrations (`MIGRATIONS` array), `transaction()`. |
-| `src/lib/server/library.ts` | Writes and single-row reads for media, episodes, plays, progress, ratings. |
-| `src/lib/server/scrobble.ts` | Turns a Plex event into progress or plays. Catalog enrichment lives here. |
-| `src/lib/server/queries.ts` | List and detail reads for the UI and API. |
-| `src/lib/server/views.ts` | Merges local rows with catalog episode lists. |
-| `src/lib/server/actions.ts` | Manual watched and unwatched changes. |
-| `src/lib/server/catalog/` | Read-only TMDB catalog client and the SQLite importer. |
-| `src/lib/server/plex/` | Webhook payload parser and library sync client. |
-| `src/lib/server/trakt/` | Trakt export importer and a minimal ZIP reader. |
+| `backend/crates/storage/` | The Watchkeep database. `migrations/` holds the SQL files that sqlx applies. `model.rs` has the rows, the text enums (`MediaKind`, `TargetKind`, `PlayState`, `RatingKind`, `PlaySource`), `new_id`, and the millisecond helpers. `library.rs` has writes and single-row reads on one connection. `queries.rs` has the list and detail reads. `bulk.rs` has set-based writes for imports. `clock.rs` has the `Clock` trait. |
+| `backend/crates/catalog/` | Read-only client of the TMDB catalog database. `schema.rs` embeds `catalog/schema.sql` with `include_str!` for the tests and the tools. |
+| `backend/crates/watchkeep/` | The server and the CLI. `config.rs` (clap `Cli`, `Config`, the `env` and `defaults` constants), `app.rs` (`AppContext`, router, static files), `http/api/` (one file per resource, typed query and response structs in `params.rs` and `responses.rs`), `http/webhook.rs`, `scrobble.rs`, `views.rs`, `actions.rs`, `plex/`, `trakt/`. |
+| `backend/crates/watchkeep/tests/` | Integration tests. `common/mod.rs` creates fresh databases per test and builds requests for the router. |
+| `.sqlx/` | Offline query data of the whole workspace. Regenerate it after a change to a query or a migration. |
+| `.cargo/config.toml` | The ts-rs settings: where the TypeScript types go, and `i64` as `number`. |
+| `scripts/` | `test-db.sh` starts a throwaway Postgres for a command. `sqlx-prepare.sh` regenerates the offline query data. |
+| `frontend/src/lib/api.ts` | The API client. `ActionName` lists the buttons of the UI. |
+| `frontend/src/lib/generated/` | The API types, written by ts-rs from the Rust structs. Do not edit. |
+| `frontend/src/lib/types.ts` | Re-exports the generated types. `Id` is the UUID string type. |
+| `.github/workflows/` | `ci.yml` runs the linters and the tests. `release.yml` builds and pushes the image on a `v*` tag. |
+| `frontend/src/lib/lists.ts`, `frontend/src/lib/format.ts` | List state (query keys in `QUERY`) and display helpers. |
 | `catalog/schema.sql` | TMDB tables for the second database. |
-| `test/` | `node:test` suites. `helpers.ts` creates fresh databases per test. |
+| `flake.nix` | The development shell. `.envrc` (`dotenv_if_exists`, `use flake`) and `.env` stay local. |
 
 ## Rules
 
-- Add a migration as a new entry at the end of `MIGRATIONS` in `src/lib/server/db.ts`. Never edit an applied entry.
-- Never join across the two databases. Use the `Catalog` class for catalog reads.
-- Keep the app working when `catalogPool` is null.
-- Timestamps are ISO-8601 text columns. Use the `Clock` interface, not `new Date()`, inside services.
-- Put page data and form handling in `src/lib/server/pages.ts`, not in `+page.server.ts`. The tests call these functions directly, because `node:test` cannot load SvelteKit modules.
-- Code in `src/lib/server/` must not import SvelteKit modules (`$app/*`, `$lib`), so that the CLI and the tests can load it. Use relative imports there.
+- Every SQL statement is a `sqlx` macro (`query!`, `query_as!`, `query_scalar!`), so the compiler checks it against the schema. The only exceptions are statements that the schema cannot describe: the adoption of the legacy `schema_migrations` table in `db.rs`, the schema file in `catalog/src/schema.rs`, and the catalog seed in the tests. Mark such a statement with a comment.
+- Each crate with macros has a `sqlx.toml` that names its database variable. `cargo build` reads `WATCHKEEP_DATABASE_URL` and `WATCHKEEP_CATALOG_DATABASE_URL`, or the offline data in `.sqlx/` when the variables are absent. After a change to a query or a migration, run `scripts/test-db.sh scripts/sqlx-prepare.sh` and commit `.sqlx/`.
+- Every struct or enum that a handler serializes derives `ts_rs::TS` with `#[ts(export)]` next to `Serialize` (`text_enum!` does it for the text enums; a field with `skip_serializing_if` also gets `#[ts(optional)]`). After a change, run `cargo test --workspace --lib export_bindings` and commit `frontend/src/lib/generated/`. The frontend never writes an API shape by hand.
+- Add a migration as a new SQL file in `backend/crates/storage/migrations/` with the next number. Never edit an applied file.
+- Never join across the two databases. The storage crate and the catalog crate each own one database.
+- Keep the app working when `catalog_pool` is `None`.
+- Ids are UUID v7 (`uuid` columns, `Uuid` in Rust, `Id` strings in TypeScript). PostgreSQL 18 or newer provides `uuidv7()`: the id columns default to it, and migration `0003` converts old rows with `uuidv7(created_at - clock_timestamp())`. Never define a UUID function in SQL. The app makes an id with `model::new_id(now)` from the `Clock` when it needs the id before the insert, never with a serial column. A new row therefore sorts after every older row.
+- Timestamps are `timestamptz` columns and `DateTime<Utc>` in Rust. Air dates are `date` columns and `NaiveDate`. Durations and positions are `std::time::Duration` in domain types and `*_ms: i64` in rows and JSON; convert with `from_millis`, `to_millis`, and `millis` from `model.rs`. Use the `Clock` trait, not `Utc::now()`, inside services.
+- Errors: `eyre::Result` in the crates and the services, `color_eyre::install()` once in `main`. A caller that matches on an error gets a `thiserror` type (`InvalidKind`, `InvalidLanguage`). No `anyhow`.
+- Configuration is clap derive. `Config` is an `Args` struct and `Cli` is the `Parser`. Every setting has a long flag, an environment variable from the `env` module, and a default from the `defaults` module. A `Duration` setting has a `value_parser` that reads minutes or days. Tests start from `Config::default()`.
+- No magic strings or numbers in code. Environment variables, defaults, headers, query keys, form fields, limits, and words of text columns are constants or enums. Derive a constant from its factors (`24 * 60 * SECONDS_PER_MINUTE`), do not write the product. Use `text_enum!` for a word that goes into a `TEXT` column.
+- Mark sections of a long file with `// region: name` and `// endregion: name`, not with dashes.
+- Query strings and request bodies are typed structs with `serde`. Path ids are `Path<Uuid>`. Responses are typed structs with `Serialize`. Do not build responses with `json!` and do not read query strings into a `HashMap`.
+- A list of ids that a function only reads takes `&[impl AsRef<str>]`, so that callers can pass `&[String]` or `&[&str]`.
+- Keep one resource per file under `http/api/`. Add a new resource as a new file with its own `routes()`.
+- The UI is a single-page app. Pages load their data from `/api` in `+page.ts`. Buttons call the API through `frontend/src/lib/api.ts` and then run `invalidateAll()`. Do not add `+page.server.ts` files: adapter-static has no server.
 - Svelte escapes text. Never use `{@html}` with data from a database or from Plex.
-- Plex posts webhook forms without an Origin header. So the SvelteKit origin check is off, and `src/hooks.server.ts` checks form posts to the UI.
-- Use pnpm, never npm. Run `pnpm typecheck` (tsc and svelte-check), `pnpm test`, and `pnpm build` before you commit. The tests need Docker or `WATCHKEEP_TEST_DATABASE_URL`.
+- Plex posts webhook forms without an Origin header. The origin check in `csrf.rs` skips `/webhook` and checks form posts to every other path.
+- The Docker runtime image is distroless: no shell, no curl. `watchkeep health` is the `HEALTHCHECK`, and every runtime need must be in the binary.
+- Use pnpm, never npm, inside `frontend/`.
+- The linters are the fast ones. Biome (`frontend/biome.jsonc`) lints and formats the TypeScript and the Svelte script blocks; never add eslint or prettier. `svelte-check` is the type checker. Clippy runs with `-D warnings` and the lints in `[workspace.lints]`. A new linter is a hook in `.pre-commit-config.yaml` and a package in `flake.nix`.
+- Before you commit, run `prek run --all-files` from the root. It runs cargo fmt, clippy, the ts-rs export, taplo, Biome, svelte-check, shellcheck, hadolint, nixfmt, and typos. Then run the tests from the root: `scripts/test-db.sh cargo test --workspace`, `pnpm test`, and `pnpm build`. The tests need Docker or `WATCHKEEP_TEST_DATABASE_URL`.
+- A release is a `v*` tag. The workflow cross-compiles the arm64 binary inside the Dockerfile (`--platform=$BUILDPLATFORM`, `TARGETARCH`) and pushes a multi-arch image to GHCR.
 
 ## Plex facts
 

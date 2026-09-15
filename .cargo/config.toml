@@ -1,0 +1,6 @@
+# ts-rs writes the TypeScript types of the API from the Rust structs, for the frontend.
+# `cargo test --workspace --lib export_bindings` regenerates them.
+[env]
+TS_RS_EXPORT_DIR = { value = "frontend/src/lib/generated", relative = true }
+# JSON numbers are doubles; serde_json writes an i64 as a plain number, not as a BigInt.
+TS_RS_LARGE_INT = "number"

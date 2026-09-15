@@ -1,0 +1,61 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n                 (SELECT COUNT(*) FROM media WHERE kind = $1) AS \"movies!\",\n                 (SELECT COUNT(DISTINCT target_id) FROM plays WHERE target_kind = $2) AS \"movies_watched!\",\n                 (SELECT COUNT(*) FROM media WHERE kind = $3) AS \"shows!\",\n                 (SELECT COUNT(*) FROM episodes) AS \"episodes!\",\n                 (SELECT COUNT(DISTINCT target_id) FROM plays WHERE target_kind = $4) AS \"episodes_watched!\",\n                 (SELECT COUNT(*) FROM plays) AS \"plays!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "movies!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "movies_watched!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "shows!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "episodes!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "episodes_watched!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "plays!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "7e2a56308aaabd15f4bbb0f5dbe80958b441d00e3e647829e1b58e8e5af4011f"
+}

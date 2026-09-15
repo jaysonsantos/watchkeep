@@ -1,0 +1,173 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, show_id, season, number, title, plex_guid, imdb_id, tmdb_id, tvdb_id, duration_ms, aired_at, created_at, updated_at\n         FROM episodes WHERE show_id = ANY($1) OR plex_guid = ANY($2)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "episodes",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "show_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "episodes",
+            "name": "show_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "season",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "episodes",
+            "name": "season"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "number",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "episodes",
+            "name": "number"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "title",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "episodes",
+            "name": "title"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "plex_guid",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "episodes",
+            "name": "plex_guid"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "imdb_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "episodes",
+            "name": "imdb_id"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "tmdb_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "episodes",
+            "name": "tmdb_id"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "tvdb_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "episodes",
+            "name": "tvdb_id"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "duration_ms",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "episodes",
+            "name": "duration_ms"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "aired_at",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "episodes",
+            "name": "aired_at"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "episodes",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "episodes",
+            "name": "updated_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "b4efad8aad062802809cb9e8c4979fd0b9cb89f70fd1d55c481d382f6af72d44"
+}

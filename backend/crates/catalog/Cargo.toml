@@ -1,0 +1,18 @@
+[package]
+name = "watchkeep-catalog"
+description = "Read-only client of the TMDB catalog database."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+chrono.workspace = true
+eyre.workspace = true
+serde.workspace = true
+sqlx.workspace = true
+thiserror.workspace = true
+ts-rs.workspace = true

@@ -1,0 +1,113 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT target_kind AS \"target_kind: TargetKind\", target_id, position_ms, duration_ms, state AS \"state: PlayState\",\n                      account, player, updated_at\n               FROM progress WHERE target_kind = $1 AND target_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "target_kind: TargetKind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "progress",
+            "name": "target_kind"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "target_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "progress",
+            "name": "target_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "position_ms",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "progress",
+            "name": "position_ms"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "duration_ms",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "progress",
+            "name": "duration_ms"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "state: PlayState",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "progress",
+            "name": "state"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "account",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "progress",
+            "name": "account"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "player",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "progress",
+            "name": "player"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "progress",
+            "name": "updated_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "39cddff56505a58324dfbb1413e2f220206f8f96acbe4d8479c8ae64a80a242b"
+}

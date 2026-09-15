@@ -7,6 +7,9 @@ watched. Plex sends webhooks to Watchkeep. Watchkeep records plays, playback
 positions, and ratings. A web UI and a JSON API show what you watched and what
 you did not watch.
 
+The server is one Rust binary. It serves the JSON API, the Plex webhook, and
+the web UI.
+
 ## Features
 
 - Plex webhook scrobbling for movies and episodes: play, pause, resume, stop, scrobble, and rate.
@@ -17,12 +20,13 @@ you did not watch.
 - Watchlist for movies and shows.
 - Add page: search the catalog by title and add a movie or show to the library or the watchlist.
 - Manual actions: mark a movie, an episode, or a whole show watched or unwatched.
-- SvelteKit web UI with dashboard, movies, shows, history, and a webhook log. The buttons also work without JavaScript.
-- PostgreSQL storage. No native modules.
+- Web UI with dashboard, movies, shows, watchlist, history, add page, and a webhook log. The UI needs JavaScript.
+- PostgreSQL storage through `sqlx`. The compiler checks every query against the schema. One binary, no runtime dependencies.
 
 ## Architecture
 
-Watchkeep uses two PostgreSQL databases on the same instance:
+Watchkeep uses two PostgreSQL databases on the same instance. The server
+needs PostgreSQL 18 or newer, which provides `uuidv7()`.
 
 | Database | Owner | Content |
 |---|---|---|
@@ -35,6 +39,23 @@ runtimes, and the complete episode list of each show.
 
 The catalog tables are defined in `catalog/schema.sql`. Any tool that fills them works.
 
+The repository has two source trees. The manifests, the lockfiles, and the tool
+configs live at the root, so `cargo` and `pnpm` run from there.
+
+| Path | Content |
+|---|---|
+| `backend/crates/` | The Rust crates of the Cargo workspace. `storage` owns the Watchkeep database, `catalog` owns the catalog database, and `watchkeep` is the server and the CLI. |
+| `frontend/` | The sources of the SvelteKit single-page app. The binary serves its build from `frontend/build`. |
+| `frontend/src/lib/generated/` | The TypeScript types of the API. ts-rs writes them from the Rust structs, so the two parts cannot drift. |
+
+Every path outside `/api`, `/webhook`, and `/healthz` returns `index.html`,
+and the UI loads its data from the JSON API.
+
+Row ids are UUID v7 values from PostgreSQL's `uuidv7()`, so they sort by creation time. Timestamps are
+`timestamptz` columns and RFC 3339 text in the API, for example
+`2026-01-01T12:00:00Z`. Air dates are `date` columns and `YYYY-MM-DD` text.
+Durations and positions are `*_ms` fields in milliseconds.
+
 ## Quick start with Docker Compose
 
 1. Copy `.env.example` to `.env`.
@@ -43,6 +64,16 @@ The catalog tables are defined in `catalog/schema.sql`. Any tool that fills them
 4. Open `http://<host>:8484`.
 
 The first start creates both databases and loads the catalog schema.
+
+The image is distroless: it has the binary, the web UI, glibc, and CA
+certificates, and no shell. `watchkeep health` is the Docker health check.
+A version tag (`v1.2.3`) publishes `ghcr.io/<owner>/watchkeep` for
+`linux/amd64` and `linux/arm64`, tagged `1.2.3`, `1.2`, and `latest`.
+
+A database from the Node version of Watchkeep keeps working. The first start
+adopts its `schema_migrations` table, converts the serial ids to UUIDs that
+keep the creation order, converts the text timestamps to `timestamptz`, and
+continues with the sqlx migrations.
 
 ## Connect Plex
 
@@ -62,25 +93,17 @@ to a comma-separated list of account titles or ids to accept only some of them.
 
 ## Load the TMDB catalog
 
-Watchkeep does not fetch TMDB data itself. Fill the `catalog` database in one of two ways:
-
-- Import a SQLite file that has the same tables (see `catalog/schema.sql`):
-
-```
-docker compose run --rm -v /path/to/catalog.sqlite:/catalog.sqlite:ro watchkeep catalog:import /catalog.sqlite
-```
-
-- Insert rows into the tables in `catalog/schema.sql` with your own tool.
-
-The import is idempotent. Run it again after the source changes.
+Watchkeep does not fetch TMDB data itself. Insert rows into the tables in
+`catalog/schema.sql` with your own tool. Watchkeep only reads them, so the
+tool can run at any time, also while Watchkeep runs.
 
 ## Sync the Plex library
 
 Set `WATCHKEEP_PLEX_URL` (for example `http://plex:32400`) and `WATCHKEEP_PLEX_TOKEN`.
-Then either:
+Then do one of these:
 
-- Press "Sync Plex library" on the dashboard, or
-- Run `docker compose run --rm watchkeep sync`, or
+- Press "Sync Plex library" on the dashboard.
+- Run `docker compose run --rm watchkeep sync`.
 - Set `WATCHKEEP_SYNC_INTERVAL_MINUTES` to sync on a timer.
 
 The sync imports every movie and episode, marks items that Plex counts as
@@ -111,7 +134,22 @@ The import reads these files from the ZIP:
 Other files (collection, comments, likes, custom lists, notes, network, profile) are ignored.
 Plex guids from the export are stored, so later Plex webhooks match the same items.
 
+## Commands
+
+The binary has four commands. `watchkeep --help` lists every flag. Flags go
+before the command: `watchkeep --port 9000 health`.
+
+| Command | Meaning |
+|---|---|
+| `watchkeep serve` | Serve the web UI, the JSON API, and the webhook. This is the default. |
+| `watchkeep sync` | Run a Plex library sync and print the report as JSON. |
+| `watchkeep trakt:import <zip> [--dry-run]` | Import a Trakt export and print the report as JSON. |
+| `watchkeep health` | Ask the server on this port for `/healthz`. Exit code 0 means healthy. |
+
 ## Configuration
+
+Every setting is a flag and an environment variable. `--port 9000` and
+`WATCHKEEP_PORT=9000` do the same.
 
 | Variable | Default | Meaning |
 |---|---|---|
@@ -128,18 +166,19 @@ Plex guids from the export are stored, so later Plex webhooks match the same ite
 | `WATCHKEEP_WEBHOOK_RETENTION_DAYS` | `30` | Days to keep raw webhook events. `0` keeps them. |
 | `WATCHKEEP_IMAGE_BASE_URL` | `https://image.tmdb.org/t/p/` | Base URL for posters. |
 | `WATCHKEEP_HOST` / `WATCHKEEP_PORT` | `0.0.0.0` / `8484` | Listen address. |
-| `WATCHKEEP_HTTP_ORIGIN` | empty | Public URL, for example `https://watchkeep.example.com`. Set it behind a reverse proxy that terminates TLS. |
+| `WATCHKEEP_STATIC_DIR` | `frontend/build` | Directory with the built web UI. |
+| `WATCHKEEP_HTTP_ORIGIN` | empty | Public URL, for example `https://watchkeep.example.com`. Set it behind a reverse proxy that changes the `Host` header. |
+| `WATCHKEEP_HTTP_HOST_HEADER` | `host` | Header that carries the host of the request, for example `x-forwarded-host`. |
+| `RUST_LOG` | `info` | Log filter of the server. |
 
-The web server is the SvelteKit Node adapter with the `WATCHKEEP_HTTP_` prefix.
-It also reads `WATCHKEEP_HTTP_PROTOCOL_HEADER`, `WATCHKEEP_HTTP_HOST_HEADER`, and
-the other [adapter-node variables](https://svelte.dev/docs/kit/adapter-node#Environment-variables).
-Do not set other variables that start with `WATCHKEEP_HTTP_`. The server does not start with an unknown one.
-
-The UI buttons are forms. Watchkeep rejects a form post when the host in the
-`Origin` header of the browser is not the host of the request. A reverse proxy
-that changes the `Host` header makes the buttons return "403 Cross-site form
-submissions are forbidden". In that case, set `WATCHKEEP_HTTP_ORIGIN`, or set
-`WATCHKEEP_HTTP_HOST_HEADER=x-forwarded-host`.
+The UI buttons call the JSON API with JSON bodies. Watchkeep rejects a form
+post (`application/x-www-form-urlencoded`, `multipart/form-data`, or
+`text/plain`) to the UI or the API when the host in the `Origin` header of
+the browser is not the host of the request. A reverse proxy that changes the
+`Host` header makes such posts return "403 Cross-site form submissions are
+forbidden". In that case, set `WATCHKEEP_HTTP_ORIGIN`, or set
+`WATCHKEEP_HTTP_HOST_HEADER=x-forwarded-host`. The webhook is exempt, because
+Plex posts forms without an `Origin` header.
 
 ## Security
 
@@ -148,28 +187,36 @@ with authentication. Only the webhook route checks a token.
 
 ## JSON API
 
+Ids in paths and bodies are UUID strings. A path with a value that is not a
+UUID returns `400 Bad Request`.
+
 | Method | Path | Meaning |
 |---|---|---|
+| `GET` | `/api/config` | Image base URL, and whether the Plex sync and the catalog are configured. |
 | `GET` | `/api/stats` | Counts of movies, shows, episodes, and plays. |
 | `GET` | `/api/progress` | Items with a saved playback position. |
+| `DELETE` | `/api/progress/:kind/:id` | Remove the playback position of a `movie` or an `episode`. |
 | `GET` | `/api/history?limit=50&offset=0` | Plays, newest first. |
 | `DELETE` | `/api/history/:id` | Remove one play. |
 | `GET` | `/api/movies?status=all\|watched\|unwatched&q=&sort=&limit=&offset=` | Movies. See [List order and pages](#list-order-and-pages). |
 | `GET` | `/api/movies/:id` | One movie with its progress. |
-| `POST` / `DELETE` | `/api/movies/:id/watched` | Mark a movie watched or unwatched. |
+| `POST` / `DELETE` | `/api/movies/:id/watched` | Mark a movie watched or unwatched. The body can carry `watched_at`, RFC 3339. |
 | `GET` | `/api/shows?status=&q=&sort=&limit=&offset=` | Shows with watched and total episode counts. |
-| `GET` | `/api/shows/:id` | One show with the merged episode list. |
+| `GET` | `/api/shows/:id` | One show with the merged episode list and `on_watchlist`. |
 | `POST` / `DELETE` | `/api/shows/:id/watched` | Mark every aired episode watched or unwatched. |
-| `POST` / `DELETE` | `/api/episodes/:id/watched` | Mark a known episode. |
+| `POST` / `DELETE` | `/api/episodes/:id/watched` | Mark a known episode. The body can carry `watched_at`. |
 | `POST` / `DELETE` | `/api/shows/:id/seasons/:s/episodes/:e/watched` | Mark an episode by number. |
 | `POST` | `/api/sync` | Run a Plex library sync. |
-| `GET` | `/api/search?q=` | Catalog search by title. Needs the catalog. |
+| `GET` | `/api/search?q=` | Catalog search by title. Needs the catalog. Each result carries `localId` when the library has the item. |
 | `POST` | `/api/movies`, `/api/shows` | Add an item. Body: `tmdb_id` or `title`, optional `year` and `watchlist`. |
 | `GET` | `/api/watchlist` | Watchlist with watched counts. |
 | `POST` / `DELETE` | `/api/movies/:id/watchlist`, `/api/shows/:id/watchlist` | Add to or remove from the watchlist. |
 | `POST` / `DELETE` | `/api/shows/:id/hidden` | Hide a show from the unwatched list, or unhide it. |
 | `GET` | `/api/webhooks` | The last 100 webhook events. |
 | `POST` | `/webhook/plex?token=` | Plex webhook endpoint. Accepts multipart or JSON. |
+| `GET` | `/healthz` | Health check. Runs one query on the Watchkeep database. |
+
+An unknown `status` or `sort` value returns `400 Bad Request`.
 
 ### List order and pages
 
@@ -201,31 +248,66 @@ With a catalog, an episode TMDB id also resolves its show.
 
 ## Development
 
-Requirements: Node 24, pnpm, and Docker (for the test database).
+`flake.nix` gives a shell with Rust, sqlx-cli, Node 24, pnpm, psql, and cmake.
+Enter it with `nix develop`, or with direnv:
+
+```
+cat > .envrc <<'EOF'
+dotenv_if_exists
+use flake
+EOF
+direnv allow
+```
+
+`.envrc` and `.env` stay local. `.env.example` lists the variables. The
+development section at its end names the two databases for the query macros
+and the server for the tests. Without them, `cargo build` uses the offline
+query data in `.sqlx`, and the tests start a Postgres container.
+
+Every SQL statement is a `sqlx` macro. The compiler checks it against the
+database that `WATCHKEEP_DATABASE_URL` or `WATCHKEEP_CATALOG_DATABASE_URL`
+names, or against `.sqlx` when the variable is absent. Migrations are the SQL
+files in `backend/crates/storage/migrations/`; the server applies them at start.
+
+```
+scripts/test-db.sh cargo test --workspace     # starts Postgres in Docker, loads both schemas, runs the tests
+scripts/test-db.sh scripts/sqlx-prepare.sh    # refreshes .sqlx after a change to a query or a migration
+cargo test --workspace --lib export_bindings  # rewrites frontend/src/lib/generated from the Rust structs
+cargo clippy --workspace --all-targets -- -D warnings
+cargo run -- serve                            # needs WATCHKEEP_DATABASE_URL, serves frontend/build on port 8484
+cargo run -- --help                           # every command, flag, and variable
+```
 
 ```
 pnpm install
-pnpm typecheck      # tsc for the server code, svelte-check for the UI
-pnpm test           # starts a throwaway Postgres container
-pnpm build          # SvelteKit server in build/, CLI in dist/
-pnpm dev            # Vite dev server on port 5173, needs WATCHKEEP_DATABASE_URL
-pnpm start          # runs the build on WATCHKEEP_PORT (8484)
+pnpm lint                                     # Biome: lint, format check, import order
+pnpm format                                   # Biome: write the fixes
+pnpm typecheck                                # svelte-check
+pnpm test                                     # unit tests of the list helpers
+pnpm build                                    # static UI in frontend/build
+pnpm dev                                      # Vite dev server on port 5173, proxies /api to port 8484
 ```
 
-One Node process serves everything. `src/hooks.server.ts` sends `/api`,
-`/webhook`, and `/healthz` to the Hono app and all other paths to SvelteKit.
-The CLI commands (`sync`, `catalog:import`, `trakt:import`) run from
-`dist/server/main.js`.
+Every linter runs through one command from the repository root. `prek` reads
+`.pre-commit-config.yaml`; the tools come from the flake.
 
-`pnpm typecheck` needs TypeScript 6 and TypeScript 7. `tsc` is TypeScript 7
-(package `@typescript/native`). svelte-check uses TypeScript 6 (package
-`typescript`).
-
-For local development with direnv, copy `.envrc.example` to `.envrc`, set the
-two database URLs, and run `direnv allow`. `.envrc` is ignored by git.
+```
+prek run --all-files                          # cargo fmt, clippy, taplo, Biome, svelte-check, shellcheck, hadolint, nixfmt, typos
+prek install                                  # run them on each commit
+```
 
 Set `WATCHKEEP_TEST_DATABASE_URL` to run the tests against an existing Postgres
 server instead of Docker. The tests create and drop their own databases.
+
+GitHub Actions run the same linters and tests on every push and pull request
+(`.github/workflows/ci.yml`), and build and push the image on a `v*` tag
+(`.github/workflows/release.yml`). The Dockerfile cross-compiles the arm64
+binary, so one amd64 runner builds both platforms.
+
+Without the flake: Rust 1.94 or newer, Node 24, pnpm, Docker (PostgreSQL 18
+for the tests), and sqlx-cli 0.9,
+installed with
+`cargo install sqlx-cli --no-default-features --features postgres,rustls,sqlx-toml`.
 
 ## License
 

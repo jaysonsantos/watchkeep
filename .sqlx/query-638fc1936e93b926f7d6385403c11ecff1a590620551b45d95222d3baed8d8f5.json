@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO watchlist (target_kind, target_id, listed_at, rank) VALUES ($1, $2, $3, $4)\n             ON CONFLICT (target_kind, target_id) DO UPDATE SET rank = COALESCE(EXCLUDED.rank, watchlist.rank)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "Timestamptz",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "638fc1936e93b926f7d6385403c11ecff1a590620551b45d95222d3baed8d8f5"
+}

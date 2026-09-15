@@ -1,0 +1,62 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT target_kind AS \"target_kind: MediaKind\", target_id, listed_at, rank\n               FROM watchlist ORDER BY rank NULLS LAST, listed_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "target_kind: MediaKind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "watchlist",
+            "name": "target_kind"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "target_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "watchlist",
+            "name": "target_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "listed_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "watchlist",
+            "name": "listed_at"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "rank",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "watchlist",
+            "name": "rank"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "a534cf6cd330cf1b651cf84786127634f22a918d40b6230bf0eccf6fcf64dc69"
+}
