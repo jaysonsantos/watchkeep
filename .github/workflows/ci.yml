@@ -15,12 +15,12 @@ jobs:
     runs-on: ubuntu-24.04
     services:
       postgres:
-        image: postgres:18-alpine
+        image: ghcr.io/jaysonsantos/bunderwar:postgres-17.10
         env:
           POSTGRES_PASSWORD: postgres
         ports: ["5432:5432"]
         options: >-
-          --health-cmd "pg_isready -U postgres"
+          --health-cmd "pg_isready -U postgres -h 127.0.0.1"
           --health-interval 5s
           --health-timeout 3s
           --health-retries 20

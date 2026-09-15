@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:18-alpine
+    image: ghcr.io/jaysonsantos/bunderwar:postgres-17.10
     restart: unless-stopped
     environment:
       POSTGRES_USER: watchkeep
