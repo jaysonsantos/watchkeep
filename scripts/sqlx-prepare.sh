@@ -15,5 +15,6 @@ repo_dir="$(dirname "$script_dir")"
 : "${WATCHKEEP_CATALOG_DATABASE_URL:?set WATCHKEEP_CATALOG_DATABASE_URL to a database with catalog/schema.sql applied}"
 
 cd "$repo_dir"
-cargo sqlx prepare --workspace -- --all-targets
+# sqlx-cli itself reads DATABASE_URL; the crates read their own variables through sqlx.toml.
+DATABASE_URL="$WATCHKEEP_DATABASE_URL" cargo sqlx prepare --workspace -- --all-targets
 echo "offline query data written to .sqlx"
