@@ -54,7 +54,8 @@ FROM gcr.io/distroless/cc-debian12:nonroot
 WORKDIR /app
 COPY --from=server /watchkeep /usr/local/bin/watchkeep
 COPY --from=web /app/frontend/build ./frontend/build
-USER nonroot
+# The numeric id of `nonroot`. Kubernetes cannot verify `runAsNonRoot` for a user name.
+USER 65532:65532
 EXPOSE 8484
 HEALTHCHECK --interval=30s --timeout=5s CMD ["watchkeep", "health"]
 ENTRYPOINT ["watchkeep"]
