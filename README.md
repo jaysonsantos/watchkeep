@@ -26,7 +26,8 @@ the web UI.
 ## Architecture
 
 Watchkeep uses two PostgreSQL databases on the same instance. The server
-needs PostgreSQL 18 or newer, which provides `uuidv7()`.
+needs PostgreSQL 17 or newer with the `pg_uuidv7` extension. The
+`ghcr.io/jaysonsantos/bunderwar:postgres-*` images have it.
 
 | Database | Owner | Content |
 |---|---|---|
@@ -37,7 +38,9 @@ The catalog is optional. Without it, Watchkeep tracks only the items that Plex
 reported. With it, Watchkeep resolves TMDB, IMDb, and TVDB ids, posters,
 runtimes, and the complete episode list of each show.
 
-The catalog tables are defined in `catalog/schema.sql`. Any tool that fills them works.
+The catalog tables are defined in `catalog/schema.sql`. They mirror the
+`benito` database of Benito TV, so Watchkeep can read that database directly.
+Any other tool that fills the same tables works too.
 
 The repository has two source trees. The manifests, the lockfiles, and the tool
 configs live at the root, so `cargo` and `pnpm` run from there.
@@ -51,7 +54,7 @@ configs live at the root, so `cargo` and `pnpm` run from there.
 Every path outside `/api`, `/webhook`, and `/healthz` returns `index.html`,
 and the UI loads its data from the JSON API.
 
-Row ids are UUID v7 values from PostgreSQL's `uuidv7()`, so they sort by creation time. Timestamps are
+Row ids are UUID v7 values from `uuid_generate_v7()`, so they sort by creation time. Timestamps are
 `timestamptz` columns and RFC 3339 text in the API, for example
 `2026-01-01T12:00:00Z`. Air dates are `date` columns and `YYYY-MM-DD` text.
 Durations and positions are `*_ms` fields in milliseconds.
@@ -299,8 +302,8 @@ GitHub Actions run the same linters and tests on every push and pull request
 (`.github/workflows/release.yml`). The Dockerfile cross-compiles the arm64
 binary, so one amd64 runner builds both platforms.
 
-Without the flake: Rust 1.94 or newer, Node 24, pnpm, Docker (PostgreSQL 18
-for the tests), and sqlx-cli 0.9,
+Without the flake: Rust 1.94 or newer, Node 24, pnpm, Docker (the tests pull
+the Postgres image), and sqlx-cli 0.9,
 installed with
 `cargo install sqlx-cli --no-default-features --features postgres,rustls,sqlx-toml`.
 

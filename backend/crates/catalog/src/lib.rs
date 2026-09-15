@@ -111,7 +111,7 @@ pub struct CatalogEpisode {
 
 /// The columns of `tmdb_movie` that Watchkeep reads.
 struct MovieRow {
-    id: i32,
+    id: i64,
     imdb_id: Option<String>,
     title_en: Option<String>,
     title_pt: Option<String>,
@@ -126,9 +126,9 @@ struct MovieRow {
 
 /// The columns of `tmdb_show` that Watchkeep reads.
 struct ShowRow {
-    id: i32,
+    id: i64,
     imdb_id: Option<String>,
-    tvdb_id: Option<i32>,
+    tvdb_id: Option<i64>,
     name_en: Option<String>,
     name_pt: Option<String>,
     original_name: Option<String>,
@@ -143,7 +143,7 @@ struct ShowRow {
 
 /// An episode row joined with its season number.
 struct EpisodeRow {
-    id: i32,
+    id: i64,
     season_number: i32,
     episode_number: i32,
     name: Option<String>,
@@ -164,15 +164,6 @@ fn year_of(date: Option<&str>) -> Option<i32> {
 /// The catalog stores dates as text. Read the date, or `None` for text that is not a date.
 pub fn parse_date(date: Option<&str>) -> Option<NaiveDate> {
     NaiveDate::parse_from_str(date?.get(0..10)?, DATE_FORMAT).ok()
-}
-
-/// Catalog ids are `INTEGER` columns. Ids outside that range match nothing.
-fn int4(id: i64) -> Option<i32> {
-    i32::try_from(id).ok()
-}
-
-fn int4_list(ids: &[i64]) -> Vec<i32> {
-    ids.iter().copied().filter_map(int4).collect()
 }
 
 fn text_list<S: AsRef<str>>(ids: &[S]) -> Vec<&str> {
@@ -205,7 +196,7 @@ impl Catalog {
 
     fn movie(&self, row: MovieRow) -> CatalogMovie {
         CatalogMovie {
-            tmdb_id: i64::from(row.id),
+            tmdb_id: row.id,
             imdb_id: row.imdb_id,
             title: self
                 .pick(row.title_en, row.title_pt)
@@ -220,7 +211,7 @@ impl Catalog {
 
     fn show(&self, row: ShowRow) -> CatalogShow {
         CatalogShow {
-            tmdb_id: i64::from(row.id),
+            tmdb_id: row.id,
             imdb_id: row.imdb_id,
             tvdb_id: row.tvdb_id.map(|id| id.to_string()),
             title: self
@@ -237,7 +228,7 @@ impl Catalog {
 
     fn episode_of(row: EpisodeRow) -> CatalogEpisode {
         CatalogEpisode {
-            tmdb_id: i64::from(row.id),
+            tmdb_id: row.id,
             season: row.season_number,
             number: row.episode_number,
             title: row.name,
@@ -250,10 +241,9 @@ impl Catalog {
     // region: movies
 
     pub async fn movie_by_tmdb_id(&self, id: i64) -> Result<Option<CatalogMovie>> {
-        let Some(id) = int4(id) else { return Ok(None) };
         let row = sqlx::query_as!(
             MovieRow,
-            "SELECT id, imdb_id, title_en, title_pt, original_title, release_date, runtime, poster_path_en, poster_path_pt, overview_en, overview_pt
+            "SELECT id, imdb_id, title_en, title_pt, original_title, release_date, runtime::int AS runtime, poster_path_en, poster_path_pt, overview_en, overview_pt
              FROM tmdb_movie WHERE id = $1",
             id
         )
@@ -265,7 +255,7 @@ impl Catalog {
     pub async fn movie_by_imdb_id(&self, imdb_id: &str) -> Result<Option<CatalogMovie>> {
         let row = sqlx::query_as!(
             MovieRow,
-            "SELECT id, imdb_id, title_en, title_pt, original_title, release_date, runtime, poster_path_en, poster_path_pt, overview_en, overview_pt
+            "SELECT id, imdb_id, title_en, title_pt, original_title, release_date, runtime::int AS runtime, poster_path_en, poster_path_pt, overview_en, overview_pt
              FROM tmdb_movie WHERE imdb_id = $1 LIMIT 1",
             imdb_id
         )
@@ -282,7 +272,7 @@ impl Catalog {
     ) -> Result<Option<CatalogMovie>> {
         let row = sqlx::query_as!(
             MovieRow,
-            "SELECT id, imdb_id, title_en, title_pt, original_title, release_date, runtime, poster_path_en, poster_path_pt, overview_en, overview_pt
+            "SELECT id, imdb_id, title_en, title_pt, original_title, release_date, runtime::int AS runtime, poster_path_en, poster_path_pt, overview_en, overview_pt
              FROM tmdb_movie
              WHERE (lower(title_en) = lower($1) OR lower(title_pt) = lower($1) OR lower(original_title) = lower($1))
                AND ($2::int IS NULL OR substr(release_date, 1, 4) IN ($3, $4, $5))
@@ -302,18 +292,17 @@ impl Catalog {
         if ids.is_empty() {
             return Ok(HashMap::new());
         }
-        let ids = int4_list(ids);
         let rows = sqlx::query_as!(
             MovieRow,
-            "SELECT id, imdb_id, title_en, title_pt, original_title, release_date, runtime, poster_path_en, poster_path_pt, overview_en, overview_pt
+            "SELECT id, imdb_id, title_en, title_pt, original_title, release_date, runtime::int AS runtime, poster_path_en, poster_path_pt, overview_en, overview_pt
              FROM tmdb_movie WHERE id = ANY($1)",
-            &ids
+            ids
         )
         .fetch_all(&self.pool)
         .await?;
         Ok(rows
             .into_iter()
-            .map(|row| (i64::from(row.id), self.movie(row)))
+            .map(|row| (row.id, self.movie(row)))
             .collect())
     }
 
@@ -329,7 +318,7 @@ impl Catalog {
         let ids = text_list(ids);
         let rows = sqlx::query_as!(
             MovieRow,
-            "SELECT id, imdb_id, title_en, title_pt, original_title, release_date, runtime, poster_path_en, poster_path_pt, overview_en, overview_pt
+            "SELECT id, imdb_id, title_en, title_pt, original_title, release_date, runtime::int AS runtime, poster_path_en, poster_path_pt, overview_en, overview_pt
              FROM tmdb_movie WHERE imdb_id = ANY($1)",
             &ids as &[&str]
         )
@@ -347,7 +336,7 @@ impl Catalog {
     pub async fn search_movies(&self, query: &str, limit: i64) -> Result<Vec<CatalogMovie>> {
         let rows = sqlx::query_as!(
             MovieRow,
-            "SELECT id, imdb_id, title_en, title_pt, original_title, release_date, runtime, poster_path_en, poster_path_pt, overview_en, overview_pt
+            "SELECT id, imdb_id, title_en, title_pt, original_title, release_date, runtime::int AS runtime, poster_path_en, poster_path_pt, overview_en, overview_pt
              FROM tmdb_movie
              WHERE title_en ILIKE '%' || $1 || '%' OR title_pt ILIKE '%' || $1 || '%' OR original_title ILIKE '%' || $1 || '%'
              ORDER BY (lower(title_en) = lower($1) OR lower(title_pt) = lower($1)) DESC, vote_count DESC NULLS LAST, release_date DESC NULLS LAST
@@ -365,10 +354,9 @@ impl Catalog {
     // region: shows
 
     pub async fn show_by_tmdb_id(&self, id: i64) -> Result<Option<CatalogShow>> {
-        let Some(id) = int4(id) else { return Ok(None) };
         let row = sqlx::query_as!(
             ShowRow,
-            "SELECT id, imdb_id, tvdb_id, name_en, name_pt, original_name, first_air_date, poster_path_en, poster_path_pt, overview_en, overview_pt, number_of_seasons, number_of_episodes
+            "SELECT id, imdb_id, tvdb_id, name_en, name_pt, original_name, first_air_date, poster_path_en, poster_path_pt, overview_en, overview_pt, number_of_seasons::int AS number_of_seasons, number_of_episodes::int AS number_of_episodes
              FROM tmdb_show WHERE id = $1",
             id
         )
@@ -381,18 +369,17 @@ impl Catalog {
         if ids.is_empty() {
             return Ok(HashMap::new());
         }
-        let ids = int4_list(ids);
         let rows = sqlx::query_as!(
             ShowRow,
-            "SELECT id, imdb_id, tvdb_id, name_en, name_pt, original_name, first_air_date, poster_path_en, poster_path_pt, overview_en, overview_pt, number_of_seasons, number_of_episodes
+            "SELECT id, imdb_id, tvdb_id, name_en, name_pt, original_name, first_air_date, poster_path_en, poster_path_pt, overview_en, overview_pt, number_of_seasons::int AS number_of_seasons, number_of_episodes::int AS number_of_episodes
              FROM tmdb_show WHERE id = ANY($1)",
-            &ids
+            ids
         )
         .fetch_all(&self.pool)
         .await?;
         Ok(rows
             .into_iter()
-            .map(|row| (i64::from(row.id), self.show(row)))
+            .map(|row| (row.id, self.show(row)))
             .collect())
     }
 
@@ -402,16 +389,16 @@ impl Catalog {
         ids: &[S],
     ) -> Result<HashMap<String, CatalogShow>> {
         let mut result = HashMap::new();
-        let numeric: Vec<i32> = ids
+        let numeric: Vec<i64> = ids
             .iter()
-            .filter_map(|id| id.as_ref().trim().parse::<i32>().ok())
+            .filter_map(|id| id.as_ref().trim().parse::<i64>().ok())
             .collect();
         if numeric.is_empty() {
             return Ok(result);
         }
         let rows = sqlx::query_as!(
             ShowRow,
-            "SELECT id, imdb_id, tvdb_id, name_en, name_pt, original_name, first_air_date, poster_path_en, poster_path_pt, overview_en, overview_pt, number_of_seasons, number_of_episodes
+            "SELECT id, imdb_id, tvdb_id, name_en, name_pt, original_name, first_air_date, poster_path_en, poster_path_pt, overview_en, overview_pt, number_of_seasons::int AS number_of_seasons, number_of_episodes::int AS number_of_episodes
              FROM tmdb_show WHERE tvdb_id = ANY($1)",
             &numeric
         )
@@ -439,7 +426,7 @@ impl Catalog {
         let ids = text_list(ids);
         let rows = sqlx::query_as!(
             ShowRow,
-            "SELECT id, imdb_id, tvdb_id, name_en, name_pt, original_name, first_air_date, poster_path_en, poster_path_pt, overview_en, overview_pt, number_of_seasons, number_of_episodes
+            "SELECT id, imdb_id, tvdb_id, name_en, name_pt, original_name, first_air_date, poster_path_en, poster_path_pt, overview_en, overview_pt, number_of_seasons::int AS number_of_seasons, number_of_episodes::int AS number_of_episodes
              FROM tmdb_show WHERE imdb_id = ANY($1)",
             &ids as &[&str]
         )
@@ -456,7 +443,7 @@ impl Catalog {
     pub async fn show_by_imdb_id(&self, imdb_id: &str) -> Result<Option<CatalogShow>> {
         let row = sqlx::query_as!(
             ShowRow,
-            "SELECT id, imdb_id, tvdb_id, name_en, name_pt, original_name, first_air_date, poster_path_en, poster_path_pt, overview_en, overview_pt, number_of_seasons, number_of_episodes
+            "SELECT id, imdb_id, tvdb_id, name_en, name_pt, original_name, first_air_date, poster_path_en, poster_path_pt, overview_en, overview_pt, number_of_seasons::int AS number_of_seasons, number_of_episodes::int AS number_of_episodes
              FROM tmdb_show WHERE imdb_id = $1 LIMIT 1",
             imdb_id
         )
@@ -466,12 +453,12 @@ impl Catalog {
     }
 
     pub async fn show_by_tvdb_id(&self, tvdb_id: &str) -> Result<Option<CatalogShow>> {
-        let Ok(numeric) = tvdb_id.trim().parse::<i32>() else {
+        let Ok(numeric) = tvdb_id.trim().parse::<i64>() else {
             return Ok(None);
         };
         let row = sqlx::query_as!(
             ShowRow,
-            "SELECT id, imdb_id, tvdb_id, name_en, name_pt, original_name, first_air_date, poster_path_en, poster_path_pt, overview_en, overview_pt, number_of_seasons, number_of_episodes
+            "SELECT id, imdb_id, tvdb_id, name_en, name_pt, original_name, first_air_date, poster_path_en, poster_path_pt, overview_en, overview_pt, number_of_seasons::int AS number_of_seasons, number_of_episodes::int AS number_of_episodes
              FROM tmdb_show WHERE tvdb_id = $1 LIMIT 1",
             numeric
         )
@@ -483,7 +470,7 @@ impl Catalog {
     pub async fn show_by_name(&self, name: &str, year: Option<i32>) -> Result<Option<CatalogShow>> {
         let row = sqlx::query_as!(
             ShowRow,
-            "SELECT id, imdb_id, tvdb_id, name_en, name_pt, original_name, first_air_date, poster_path_en, poster_path_pt, overview_en, overview_pt, number_of_seasons, number_of_episodes
+            "SELECT id, imdb_id, tvdb_id, name_en, name_pt, original_name, first_air_date, poster_path_en, poster_path_pt, overview_en, overview_pt, number_of_seasons::int AS number_of_seasons, number_of_episodes::int AS number_of_episodes
              FROM tmdb_show
              WHERE (lower(name_en) = lower($1) OR lower(name_pt) = lower($1) OR lower(original_name) = lower($1))
                AND ($2::int IS NULL OR substr(first_air_date, 1, 4) = $3)
@@ -500,7 +487,7 @@ impl Catalog {
     pub async fn search_shows(&self, query: &str, limit: i64) -> Result<Vec<CatalogShow>> {
         let rows = sqlx::query_as!(
             ShowRow,
-            "SELECT id, imdb_id, tvdb_id, name_en, name_pt, original_name, first_air_date, poster_path_en, poster_path_pt, overview_en, overview_pt, number_of_seasons, number_of_episodes
+            "SELECT id, imdb_id, tvdb_id, name_en, name_pt, original_name, first_air_date, poster_path_en, poster_path_pt, overview_en, overview_pt, number_of_seasons::int AS number_of_seasons, number_of_episodes::int AS number_of_episodes
              FROM tmdb_show
              WHERE name_en ILIKE '%' || $1 || '%' OR name_pt ILIKE '%' || $1 || '%' OR original_name ILIKE '%' || $1 || '%'
              ORDER BY (lower(name_en) = lower($1) OR lower(name_pt) = lower($1)) DESC, vote_count DESC NULLS LAST, first_air_date DESC NULLS LAST
@@ -522,18 +509,16 @@ impl Catalog {
         &self,
         episode_tmdb_id: i64,
     ) -> Result<Option<(CatalogShow, i32, i32)>> {
-        let Some(id) = int4(episode_tmdb_id) else {
-            return Ok(None);
-        };
         let row = sqlx::query!(
-            "SELECT s.id, s.imdb_id, s.tvdb_id, s.name_en, s.name_pt, s.original_name, s.first_air_date, s.poster_path_en,
-                    s.poster_path_pt, s.overview_en, s.overview_pt, s.number_of_seasons, s.number_of_episodes,
-                    se.season_number, e.episode_number
+            r#"SELECT s.id, s.imdb_id, s.tvdb_id, s.name_en, s.name_pt, s.original_name, s.first_air_date, s.poster_path_en,
+                    s.poster_path_pt, s.overview_en, s.overview_pt,
+                    s.number_of_seasons::int AS number_of_seasons, s.number_of_episodes::int AS number_of_episodes,
+                    se.season_number::int AS "season_number!", e.episode_number::int AS "episode_number!"
              FROM tmdb_episode e
              JOIN tmdb_season se ON se.id = e.season_id
              JOIN tmdb_show s ON s.id = se.show_id
-             WHERE e.id = $1",
-            id
+             WHERE e.id = $1"#,
+            episode_tmdb_id
         )
         .fetch_optional(&self.pool)
         .await?;
@@ -563,17 +548,15 @@ impl Catalog {
         season: i32,
         number: i32,
     ) -> Result<Option<CatalogEpisode>> {
-        let Some(show_id) = int4(show_tmdb_id) else {
-            return Ok(None);
-        };
         let row = sqlx::query_as!(
             EpisodeRow,
-            "SELECT e.id, se.season_number, e.episode_number, e.name, e.air_date, e.runtime, e.still_path
-             FROM tmdb_episode e JOIN tmdb_season se ON se.id = e.season_id
-             WHERE se.show_id = $1 AND se.season_number = $2 AND e.episode_number = $3",
-            show_id,
-            season,
-            number
+            r#"SELECT e.id, se.season_number::int AS "season_number!", e.episode_number::int AS "episode_number!",
+                      e.name, e.air_date, e.runtime::int AS runtime, e.still_path
+               FROM tmdb_episode e JOIN tmdb_season se ON se.id = e.season_id
+               WHERE se.show_id = $1 AND se.season_number = $2 AND e.episode_number = $3"#,
+            show_tmdb_id,
+            i64::from(season),
+            i64::from(number)
         )
         .fetch_optional(&self.pool)
         .await?;
@@ -581,15 +564,13 @@ impl Catalog {
     }
 
     pub async fn episodes(&self, show_tmdb_id: i64) -> Result<Vec<CatalogEpisode>> {
-        let Some(show_id) = int4(show_tmdb_id) else {
-            return Ok(Vec::new());
-        };
         let rows = sqlx::query_as!(
             EpisodeRow,
-            "SELECT e.id, se.season_number, e.episode_number, e.name, e.air_date, e.runtime, e.still_path
-             FROM tmdb_episode e JOIN tmdb_season se ON se.id = e.season_id
-             WHERE se.show_id = $1 ORDER BY se.season_number, e.episode_number",
-            show_id
+            r#"SELECT e.id, se.season_number::int AS "season_number!", e.episode_number::int AS "episode_number!",
+                      e.name, e.air_date, e.runtime::int AS runtime, e.still_path
+               FROM tmdb_episode e JOIN tmdb_season se ON se.id = e.season_id
+               WHERE se.show_id = $1 ORDER BY se.season_number, e.episode_number"#,
+            show_tmdb_id
         )
         .fetch_all(&self.pool)
         .await?;
@@ -604,12 +585,12 @@ impl Catalog {
         if show_tmdb_ids.is_empty() {
             return Ok(HashMap::new());
         }
-        let show_ids = int4_list(show_tmdb_ids);
         let rows = sqlx::query!(
-            "SELECT se.show_id, e.id, se.season_number, e.episode_number, e.name, e.air_date, e.runtime, e.still_path
-             FROM tmdb_episode e JOIN tmdb_season se ON se.id = e.season_id
-             WHERE se.show_id = ANY($1)",
-            &show_ids
+            r#"SELECT se.show_id, e.id, se.season_number::int AS "season_number!", e.episode_number::int AS "episode_number!",
+                      e.name, e.air_date, e.runtime::int AS runtime, e.still_path
+               FROM tmdb_episode e JOIN tmdb_season se ON se.id = e.season_id
+               WHERE se.show_id = ANY($1)"#,
+            show_tmdb_ids
         )
         .fetch_all(&self.pool)
         .await?;
@@ -625,10 +606,7 @@ impl Catalog {
                     runtime: row.runtime,
                     still_path: row.still_path,
                 });
-                (
-                    (i64::from(row.show_id), episode.season, episode.number),
-                    episode,
-                )
+                ((row.show_id, episode.season, episode.number), episode)
             })
             .collect())
     }
@@ -642,21 +620,20 @@ impl Catalog {
         if show_tmdb_ids.is_empty() {
             return Ok(HashMap::new());
         }
-        let show_ids = int4_list(show_tmdb_ids);
         let today = today.format(DATE_FORMAT).to_string();
         let rows = sqlx::query!(
             r#"SELECT se.show_id, COUNT(*) AS "count!"
                FROM tmdb_episode e JOIN tmdb_season se ON se.id = e.season_id
                WHERE se.show_id = ANY($1) AND se.season_number > 0 AND (e.air_date IS NULL OR e.air_date <= $2)
                GROUP BY se.show_id"#,
-            &show_ids,
+            show_tmdb_ids,
             today
         )
         .fetch_all(&self.pool)
         .await?;
         Ok(rows
             .into_iter()
-            .map(|row| (i64::from(row.show_id), row.count))
+            .map(|row| (row.show_id, row.count))
             .collect())
     }
 

@@ -21,7 +21,7 @@ The Rust sources live in `backend/crates/` and the SvelteKit sources in `fronten
 | `frontend/src/lib/types.ts` | Re-exports the generated types. `Id` is the UUID string type. |
 | `.github/workflows/` | `ci.yml` runs the linters and the tests. `release.yml` builds and pushes the image on a `v*` tag. |
 | `frontend/src/lib/lists.ts`, `frontend/src/lib/format.ts` | List state (query keys in `QUERY`) and display helpers. |
-| `catalog/schema.sql` | TMDB tables for the second database. |
+| `catalog/schema.sql` | The TMDB tables, a schema dump of the `benito` database of Benito TV. Its integer columns are `bigint`; the catalog crate casts the small ones to `int` in SQL. |
 | `flake.nix` | The development shell. `.envrc` (`dotenv_if_exists`, `use flake`) and `.env` stay local. |
 
 ## Rules
@@ -32,7 +32,7 @@ The Rust sources live in `backend/crates/` and the SvelteKit sources in `fronten
 - Add a migration as a new SQL file in `backend/crates/storage/migrations/` with the next number. Never edit an applied file.
 - Never join across the two databases. The storage crate and the catalog crate each own one database.
 - Keep the app working when `catalog_pool` is `None`.
-- Ids are UUID v7 (`uuid` columns, `Uuid` in Rust, `Id` strings in TypeScript). PostgreSQL 18 or newer provides `uuidv7()`, and the id columns default to it. Never define a UUID function in SQL. The app makes an id with `model::new_id(now)` from the `Clock` when it needs the id before the insert, never with a serial column. A new row therefore sorts after every older row.
+- Ids are UUID v7 (`uuid` columns, `Uuid` in Rust, `Id` strings in TypeScript). The `pg_uuidv7` extension (PostgreSQL 17 or newer; the production server is 17.10) provides `uuid_generate_v7()`, and the id columns default to it. The first migration creates the extension. Never define a UUID function in SQL. The app makes an id with `model::new_id(now)` from the `Clock` when it needs the id before the insert, never with a serial column. A new row therefore sorts after every older row.
 - Timestamps are `timestamptz` columns and `DateTime<Utc>` in Rust. Air dates are `date` columns and `NaiveDate`. Durations and positions are `std::time::Duration` in domain types and `*_ms: i64` in rows and JSON; convert with `from_millis`, `to_millis`, and `millis` from `model.rs`. Use the `Clock` trait, not `Utc::now()`, inside services.
 - Errors: `eyre::Result` in the crates and the services, `color_eyre::install()` once in `main`. A caller that matches on an error gets a `thiserror` type (`InvalidKind`, `InvalidLanguage`). No `anyhow`.
 - Configuration is clap derive. `Config` is an `Args` struct and `Cli` is the `Parser`. Every setting has a long flag, an environment variable from the `env` module, and a default from the `defaults` module. A `Duration` setting has a `value_parser` that reads minutes or days. Tests start from `Config::default()`.

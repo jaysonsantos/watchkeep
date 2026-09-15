@@ -1,15 +1,15 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, imdb_id, tvdb_id, name_en, name_pt, original_name, first_air_date, poster_path_en, poster_path_pt, overview_en, overview_pt, number_of_seasons, number_of_episodes\n             FROM tmdb_show WHERE imdb_id = $1 LIMIT 1",
+  "query": "SELECT id, imdb_id, title_en, title_pt, original_title, release_date, runtime::int AS runtime, poster_path_en, poster_path_pt, overview_en, overview_pt\n             FROM tmdb_movie WHERE id = $1",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
         "name": "id",
-        "type_info": "Int4",
+        "type_info": "Int8",
         "origin": {
           "Table": {
-            "table": "tmdb_show",
+            "table": "tmdb_movie",
             "name": "id"
           }
         }
@@ -20,65 +20,60 @@
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "tmdb_show",
+            "table": "tmdb_movie",
             "name": "imdb_id"
           }
         }
       },
       {
         "ordinal": 2,
-        "name": "tvdb_id",
-        "type_info": "Int4",
+        "name": "title_en",
+        "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "tmdb_show",
-            "name": "tvdb_id"
+            "table": "tmdb_movie",
+            "name": "title_en"
           }
         }
       },
       {
         "ordinal": 3,
-        "name": "name_en",
+        "name": "title_pt",
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "tmdb_show",
-            "name": "name_en"
+            "table": "tmdb_movie",
+            "name": "title_pt"
           }
         }
       },
       {
         "ordinal": 4,
-        "name": "name_pt",
+        "name": "original_title",
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "tmdb_show",
-            "name": "name_pt"
+            "table": "tmdb_movie",
+            "name": "original_title"
           }
         }
       },
       {
         "ordinal": 5,
-        "name": "original_name",
+        "name": "release_date",
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "tmdb_show",
-            "name": "original_name"
+            "table": "tmdb_movie",
+            "name": "release_date"
           }
         }
       },
       {
         "ordinal": 6,
-        "name": "first_air_date",
-        "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "tmdb_show",
-            "name": "first_air_date"
-          }
-        }
+        "name": "runtime",
+        "type_info": "Int4",
+        "origin": "Expression"
       },
       {
         "ordinal": 7,
@@ -86,7 +81,7 @@
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "tmdb_show",
+            "table": "tmdb_movie",
             "name": "poster_path_en"
           }
         }
@@ -97,7 +92,7 @@
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "tmdb_show",
+            "table": "tmdb_movie",
             "name": "poster_path_pt"
           }
         }
@@ -108,7 +103,7 @@
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "tmdb_show",
+            "table": "tmdb_movie",
             "name": "overview_en"
           }
         }
@@ -119,37 +114,15 @@
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "tmdb_show",
+            "table": "tmdb_movie",
             "name": "overview_pt"
-          }
-        }
-      },
-      {
-        "ordinal": 11,
-        "name": "number_of_seasons",
-        "type_info": "Int4",
-        "origin": {
-          "Table": {
-            "table": "tmdb_show",
-            "name": "number_of_seasons"
-          }
-        }
-      },
-      {
-        "ordinal": 12,
-        "name": "number_of_episodes",
-        "type_info": "Int4",
-        "origin": {
-          "Table": {
-            "table": "tmdb_show",
-            "name": "number_of_episodes"
           }
         }
       }
     ],
     "parameters": {
       "Left": [
-        "Text"
+        "Int8"
       ]
     },
     "nullable": [
@@ -159,14 +132,12 @@
       true,
       true,
       true,
-      true,
-      true,
-      true,
+      null,
       true,
       true,
       true,
       true
     ]
   },
-  "hash": "6eff550d43736d5c76b0e1ebd56e5f4097ee4185e5a30918fdb542ba600295c6"
+  "hash": "c880c04340b5fc9376f5b1be40b8e17df794704fefb3052e43b4e90230a3ec5b"
 }
