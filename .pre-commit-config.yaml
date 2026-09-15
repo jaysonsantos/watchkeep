@@ -1,0 +1,81 @@
+# Every linter of the repository. Run all of them with `prek run --all-files`,
+# and `prek install` once to run them on each commit. prek and the tools come
+# from the nix flake; Biome comes from package.json.
+# `.sqlx` (sqlx-cli) and `frontend/src/lib/generated` (ts-rs) are generated files.
+exclude: ^(\.sqlx/|frontend/src/lib/generated/)
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-merge-conflict
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-yaml
+      - id: check-json
+
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: cargo fmt --all -- --check
+        language: system
+        pass_filenames: false
+        files: \.rs$
+
+      - id: cargo-clippy
+        name: cargo clippy
+        entry: cargo clippy --workspace --all-targets -- -D warnings
+        language: system
+        pass_filenames: false
+        files: ^(backend/|Cargo\.toml|Cargo\.lock)
+
+      - id: ts-rs
+        name: ts-rs bindings
+        # Writes frontend/src/lib/generated from the Rust structs. A diff means the commit lacks the new files.
+        entry: cargo test --workspace --lib export_bindings --quiet
+        language: system
+        pass_filenames: false
+        files: ^(backend/|Cargo\.toml|Cargo\.lock|\.cargo/)
+
+      - id: taplo
+        name: taplo fmt
+        entry: taplo fmt --check
+        language: system
+        files: \.toml$
+
+      - id: biome
+        name: biome ci
+        entry: pnpm exec biome ci .
+        language: system
+        pass_filenames: false
+        files: ^(frontend/|package\.json|pnpm-lock\.yaml|biome\.jsonc|svelte\.config\.js|vite\.config\.ts|tsconfig\.json)
+
+      - id: svelte-check
+        name: svelte-check
+        entry: pnpm typecheck
+        language: system
+        pass_filenames: false
+        files: ^(frontend/|package\.json|pnpm-lock\.yaml|svelte\.config\.js|vite\.config\.ts|tsconfig\.json)
+
+      - id: shellcheck
+        name: shellcheck
+        entry: shellcheck
+        language: system
+        files: \.sh$
+
+      - id: hadolint
+        name: hadolint
+        entry: hadolint
+        language: system
+        files: (^|/)Dockerfile$
+
+      - id: nixfmt
+        name: nixfmt
+        entry: nixfmt --check
+        language: system
+        files: \.nix$
+
+      - id: typos
+        name: typos
+        entry: typos
+        language: system
