@@ -41,7 +41,19 @@ jobs:
       - name: Test the backend
         run: nix develop --command cargo test --workspace
 
-      - name: Test and build the frontend
-        run: |
-          nix develop --command pnpm test
-          nix develop --command pnpm build
+  # The frontend needs no database, so this job runs beside the other jobs.
+  test-frontend:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Install the frontend packages
+        run: nix develop --command pnpm install --frozen-lockfile
+
+      - name: Test the frontend
+        run: nix develop --command pnpm test
+
+      - name: Build the frontend
+        run: nix develop --command pnpm build
