@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT s.id, s.kind AS \"kind: MediaKind\", s.tmdb_id AS \"tmdb_id!\", s.title,\n                      (SELECT COUNT(*) FROM plays p JOIN episodes e2 ON e2.id = p.target_id\n                         WHERE p.target_kind = $2 AND e2.show_id = s.id) AS \"play_count!\",\n                      COALESCE(SUM(CASE WHEN EXISTS (SELECT 1 FROM plays p WHERE p.target_kind = $2 AND p.target_id = e.id) THEN 1 ELSE 0 END), 0)::bigint AS \"watched_count!\",\n                      COUNT(e.id) AS \"episode_count!\",\n                      (SELECT MAX(p.watched_at) FROM plays p JOIN episodes e2 ON e2.id = p.target_id\n                         WHERE p.target_kind = $2 AND e2.show_id = s.id) AS \"last_watched_at?\",\n                      (SELECT r.rating FROM ratings r WHERE r.target_kind = $3 AND r.target_id = s.id) AS \"rating?\"\n               FROM media s\n               LEFT JOIN episodes e ON e.show_id = s.id\n               WHERE s.kind = $1 AND s.tmdb_id IS NOT NULL\n               GROUP BY s.id",
+  "query": "SELECT s.id, s.kind AS \"kind: MediaKind\", s.tmdb_id AS \"tmdb_id!\", s.title,\n                      (SELECT COUNT(*) FROM plays p JOIN episodes e2 ON e2.id = p.target_id\n                         WHERE p.target_kind = $2 AND e2.show_id = s.id) AS \"play_count!\",\n                      COALESCE(SUM(CASE WHEN EXISTS (SELECT 1 FROM plays p WHERE p.target_kind = $2 AND p.target_id = e.id) THEN 1 ELSE 0 END), 0)::bigint AS \"watched_count!\",\n                      COUNT(e.id) AS \"episode_count!\",\n                      (SELECT MAX(p.watched_at) FROM plays p JOIN episodes e2 ON e2.id = p.target_id\n                         WHERE p.target_kind = $2 AND e2.show_id = s.id) AS \"last_watched_at?\",\n                      COALESCE(\n                        (SELECT r.rating FROM ratings r WHERE r.target_kind = $3 AND r.target_id = s.id),\n                        (SELECT AVG(r.rating) FROM ratings r JOIN episodes e2 ON e2.id = r.target_id\n                           WHERE r.target_kind = $4 AND e2.show_id = s.id)\n                      ) AS \"rating?\"\n               FROM media s\n               LEFT JOIN episodes e ON e.show_id = s.id\n               WHERE s.kind = $1 AND s.tmdb_id IS NOT NULL\n               GROUP BY s.id",
   "describe": {
     "columns": [
       {
@@ -82,6 +82,7 @@
       "Left": [
         "Text",
         "Text",
+        "Text",
         "Text"
       ]
     },
@@ -97,5 +98,5 @@
       null
     ]
   },
-  "hash": "dfeb1d11fe9d1cb529f0b34a5ae9d33d043af97104dbf130467441acb9b5fea5"
+  "hash": "a37883192d33ed1a47ce1993507cad97d0271d882c5ddca7348099dda9184cbf"
 }

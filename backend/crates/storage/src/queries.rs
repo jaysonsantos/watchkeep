@@ -162,6 +162,9 @@ pub struct TasteItem {
     /// 1 for a movie, or the episodes of the show with a local row.
     pub episode_count: i64,
     pub last_watched_at: Option<DateTime<Utc>>,
+    /// The rating of the item. A show without a rating of its own takes the
+    /// average of the ratings of its episodes, because Plex and Trakt rate
+    /// episodes far more often than shows.
     pub rating: Option<f64>,
 }
 
@@ -555,14 +558,19 @@ impl Queries {
                       COUNT(e.id) AS "episode_count!",
                       (SELECT MAX(p.watched_at) FROM plays p JOIN episodes e2 ON e2.id = p.target_id
                          WHERE p.target_kind = $2 AND e2.show_id = s.id) AS "last_watched_at?",
-                      (SELECT r.rating FROM ratings r WHERE r.target_kind = $3 AND r.target_id = s.id) AS "rating?"
+                      COALESCE(
+                        (SELECT r.rating FROM ratings r WHERE r.target_kind = $3 AND r.target_id = s.id),
+                        (SELECT AVG(r.rating) FROM ratings r JOIN episodes e2 ON e2.id = r.target_id
+                           WHERE r.target_kind = $4 AND e2.show_id = s.id)
+                      ) AS "rating?"
                FROM media s
                LEFT JOIN episodes e ON e.show_id = s.id
                WHERE s.kind = $1 AND s.tmdb_id IS NOT NULL
                GROUP BY s.id"#,
             MediaKind::Show.as_str(),
             TargetKind::Episode.as_str(),
-            RatingKind::Show.as_str()
+            RatingKind::Show.as_str(),
+            RatingKind::Episode.as_str()
         )
         .fetch_all(&self.pool)
         .await?)

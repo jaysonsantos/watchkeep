@@ -1,10 +1,12 @@
 mod common;
 
 use axum::http::{Method, StatusCode};
-use common::{call, event, get, json_request, movie_payload, test_context};
+use common::{TestContext, call, event, get, id_of, json_request, movie_payload, test_context};
 use eyre::Result;
 use serde_json::{Value, json};
 use sqlx::{AssertSqlSafe, PgPool};
+use uuid::Uuid;
+use watchkeep_storage::model::RatingKind;
 
 const PATH: &str = "/api/recommendations";
 
@@ -177,6 +179,66 @@ async fn lists_a_finished_show_that_still_makes_episodes() -> Result<()> {
         "the show is complete and in production"
     );
     t.close().await
+}
+
+/// Plex and Trakt rate episodes far more often than shows, so a show without a
+/// rating of its own takes the average of the ratings of its episodes.
+#[tokio::test]
+async fn folds_episode_ratings_into_the_rating_of_a_show() -> Result<()> {
+    let t = test_context(|_| {}, true).await?;
+    seed_recommendations(t.catalog_pool.as_ref().expect("a catalog pool")).await?;
+    let (_, show) = call(
+        &t.app(),
+        json_request(Method::POST, "/api/shows", &json!({ "tmdb_id": 95396 })),
+    )
+    .await;
+    let show_id: Uuid = id_of(&show);
+    call(
+        &t.app(),
+        json_request(
+            Method::POST,
+            &format!("/api/shows/{show_id}/watched"),
+            &json!({}),
+        ),
+    )
+    .await;
+    let episodes = t.episode_ids(show_id).await?;
+
+    let show_rating = || async {
+        let items = t.queries.taste().await.expect("the taste items");
+        items
+            .into_iter()
+            .find(|item| item.id == show_id)
+            .expect("the show")
+            .rating
+    };
+    assert_eq!(show_rating().await, None, "no rating anywhere yet");
+
+    // Each write takes its own connection and gives it back. `close()` waits
+    // for every connection of the pool, so a held one would block the test.
+    rate(&t, RatingKind::Episode, episodes[0], 9.0).await?;
+    rate(&t, RatingKind::Episode, episodes[1], 7.0).await?;
+    assert_eq!(
+        show_rating().await,
+        Some(8.0),
+        "the average of the rated episodes"
+    );
+
+    rate(&t, RatingKind::Show, show_id, 5.0).await?;
+    assert_eq!(
+        show_rating().await,
+        Some(5.0),
+        "a rating of the show itself wins"
+    );
+    t.close().await
+}
+
+async fn rate(t: &TestContext, kind: RatingKind, id: Uuid, rating: f64) -> Result<()> {
+    t.library()
+        .await?
+        .set_rating(kind, id, rating, None)
+        .await?;
+    Ok(())
 }
 
 #[tokio::test]
