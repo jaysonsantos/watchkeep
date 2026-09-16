@@ -4,3 +4,8 @@
 TS_RS_EXPORT_DIR = { value = "frontend/src/lib/generated", relative = true }
 # JSON numbers are doubles; serde_json writes an i64 as a plain number, not as a BigInt.
 TS_RS_LARGE_INT = "number"
+
+# tokio-console and the `spawn!` macros of watchkeep-telemetry need the unstable
+# task API of tokio. The Docker build copies this file for the same reason.
+[build]
+rustflags = ["--cfg", "tokio_unstable"]

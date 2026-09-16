@@ -15,6 +15,5 @@ eyre.workspace = true
 serde.workspace = true
 sqlx.workspace = true
 thiserror.workspace = true
-tracing.workspace = true
 ts-rs.workspace = true
 uuid.workspace = true

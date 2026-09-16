@@ -8,6 +8,7 @@ use std::time::Duration;
 use eyre::Result;
 use serde::Serialize;
 use sqlx::{PgConnection, PgPool};
+use tracing::{Span, field, instrument};
 use uuid::Uuid;
 use watchkeep_catalog::{Catalog, CatalogEpisode, CatalogMovie, CatalogShow};
 use watchkeep_storage::clock::SharedClock;
@@ -317,7 +318,32 @@ impl Scrobbler {
         }
     }
 
+    /// Applies one Plex event. The span carries what the scrobbler decided, and
+    /// the counter gets one point per event.
+    #[instrument(
+        skip_all,
+        err,
+        fields(
+            plex.event = event.event.as_str(),
+            target.kind = field::Empty,
+            scrobble.action = field::Empty,
+        )
+    )]
     pub async fn apply(&self, event: &PlexEvent) -> Result<ScrobbleResult> {
+        let result = self.apply_event(event).await?;
+        let span = Span::current();
+        span.record("target.kind", result.target_kind.as_str());
+        span.record("scrobble.action", result.action.as_str());
+        // Both labels are words of an enum, so the cardinality stays small.
+        tracing::info!(
+            monotonic_counter.watchkeep_scrobble_events_total = 1_u64,
+            plex_event = event.event.as_str(),
+            scrobble_action = result.action.as_str(),
+        );
+        Ok(result)
+    }
+
+    async fn apply_event(&self, event: &PlexEvent) -> Result<ScrobbleResult> {
         if !account_allowed(&self.config, event) {
             let kind = event.media.target_kind();
             return Ok(ScrobbleResult {

@@ -26,6 +26,8 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
+# `.cargo/config.toml` carries the `tokio_unstable` flag that the named tasks need.
+COPY .cargo ./.cargo
 COPY .sqlx ./.sqlx
 COPY catalog ./catalog
 COPY backend ./backend

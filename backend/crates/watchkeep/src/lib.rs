@@ -11,6 +11,7 @@ pub mod csrf;
 pub mod http;
 pub mod plex;
 pub mod scrobble;
+pub mod telemetry;
 pub mod trakt;
 pub mod views;
 

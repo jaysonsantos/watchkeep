@@ -26,8 +26,14 @@ pub mod env {
     pub const STATIC_DIR: &str = "WATCHKEEP_STATIC_DIR";
     pub const HTTP_ORIGIN: &str = "WATCHKEEP_HTTP_ORIGIN";
     pub const HOST_HEADER: &str = "WATCHKEEP_HTTP_HOST_HEADER";
-    /// Log filter of the server, read by `tracing-subscriber`.
-    pub const LOG: &str = "RUST_LOG";
+}
+
+/// The names of the commands. The root span of the process records one of them.
+pub mod command {
+    pub const SERVE: &str = "serve";
+    pub const SYNC: &str = "sync";
+    pub const TRAKT_IMPORT: &str = "trakt:import";
+    pub const HEALTH: &str = "health";
 }
 
 /// The values that apply when a flag and its variable are absent.
@@ -48,7 +54,6 @@ pub mod defaults {
     pub const WEBHOOK_RETENTION_DAYS: &str = "30";
     pub const STATIC_DIR: &str = "frontend/build";
     pub const HOST_HEADER: &str = "host";
-    pub const LOG: &str = "info";
 }
 
 const SECONDS_PER_MINUTE: u64 = 60;
@@ -218,7 +223,7 @@ pub enum Command {
     /// Run a Plex library sync and print the report as JSON.
     Sync,
     /// Import a Trakt data export, the ZIP from trakt.tv, and print the report as JSON.
-    #[command(name = "trakt:import")]
+    #[command(name = command::TRAKT_IMPORT)]
     TraktImport {
         /// Path of the export ZIP.
         zip: PathBuf,
@@ -228,4 +233,16 @@ pub enum Command {
     },
     /// Ask the running server on this port for its health. The Docker HEALTHCHECK runs it.
     Health,
+}
+
+impl Command {
+    /// The name of the command, as the root span records it.
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Serve => command::SERVE,
+            Self::Sync => command::SYNC,
+            Self::TraktImport { .. } => command::TRAKT_IMPORT,
+            Self::Health => command::HEALTH,
+        }
+    }
 }

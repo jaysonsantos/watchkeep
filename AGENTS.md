@@ -11,10 +11,11 @@ The Rust sources live in `backend/crates/` and the SvelteKit sources in `fronten
 |---|---|
 | `backend/crates/storage/` | The Watchkeep database. `migrations/` holds the SQL files that sqlx applies. `model.rs` has the rows, the text enums (`MediaKind`, `TargetKind`, `PlayState`, `RatingKind`, `PlaySource`), `new_id`, and the millisecond helpers. `library.rs` has writes and single-row reads on one connection. `queries.rs` has the list and detail reads. `bulk.rs` has set-based writes for imports. `clock.rs` has the `Clock` trait. |
 | `backend/crates/catalog/` | Read-only client of the TMDB catalog database. `schema.rs` embeds `catalog/schema.sql` with `include_str!` for the tests and the tools. |
-| `backend/crates/watchkeep/` | The server and the CLI. `config.rs` (clap `Cli`, `Config`, the `env` and `defaults` constants), `app.rs` (`AppContext`, router, static files), `http/api/` (one file per resource, typed query and response structs in `params.rs` and `responses.rs`), `http/webhook.rs`, `scrobble.rs`, `views.rs`, `actions.rs`, `plex/`, `trakt/`. |
+| `backend/crates/telemetry/` | `watchkeep-telemetry`: the subscriber, the OTLP export, the metrics, and the error report. `tracing.rs` has `configure_tracing` and `OtelGuard`, `constants.rs` the names and the version, `propagation.rs` the composite propagator and the header adapters, `report_error.rs` the `report_error!` macro, `task.rs` the `spawn!` macros, and `testing.rs` (feature `testing`) `init_goodies` for the tests. |
+| `backend/crates/watchkeep/` | The server and the CLI. `config.rs` (clap `Cli`, `Config`, the `env` and `defaults` constants), `app.rs` (`AppContext`, router, static files), `telemetry.rs` (the `server` span and the metrics of one HTTP request), `http/api/` (one file per resource, typed query and response structs in `params.rs` and `responses.rs`), `http/webhook.rs`, `scrobble.rs`, `views.rs`, `actions.rs`, `plex/`, `trakt/`. |
 | `backend/crates/watchkeep/tests/` | Integration tests. `common/mod.rs` creates fresh databases per test and builds requests for the router. |
 | `.sqlx/` | Offline query data of the whole workspace. Regenerate it after a change to a query or a migration. |
-| `.cargo/config.toml` | The ts-rs settings: where the TypeScript types go, and `i64` as `number`. |
+| `.cargo/config.toml` | The ts-rs settings: where the TypeScript types go, and `i64` as `number`. Also `--cfg tokio_unstable`, which the named tasks and tokio-console need. The Dockerfile copies the file for that reason. |
 | `scripts/` | `test-db.sh` starts a throwaway Postgres for a command. `sqlx-prepare.sh` regenerates the offline query data. |
 | `frontend/src/lib/api.ts` | The API client. `ActionName` lists the buttons of the UI. |
 | `frontend/src/lib/generated/` | The API types, written by ts-rs from the Rust structs. Do not edit. |
@@ -48,6 +49,13 @@ The Rust sources live in `backend/crates/` and the SvelteKit sources in `fronten
 - Use pnpm, never npm, inside `frontend/`.
 - The linters are the fast ones. Biome (`frontend/biome.jsonc`) lints and formats the TypeScript and the Svelte script blocks; never add eslint or prettier. `svelte-check` is the type checker. Clippy runs with `-D warnings` and the lints in `[workspace.lints]`. A new linter is a hook in `.pre-commit-config.yaml` and a package in `flake.nix`.
 - Before you commit, run `prek run --all-files` from the root. It runs cargo fmt, clippy, the ts-rs export, taplo, Biome, svelte-check, shellcheck, hadolint, nixfmt, and typos. Then run the tests from the root: `scripts/test-db.sh cargo test --workspace`, `pnpm test`, and `pnpm build`. The tests need Docker or `WATCHKEEP_TEST_DATABASE_URL`.
+- Telemetry follows one shape. `configure_tracing()` is the first call of `main`; `main` flushes the guard, drops it, and waits `EXPORT_GRACE` before it returns. No collector address is in the code: the `OTEL_*` variables are the only way to change the target.
+- A service function that is one unit of work gets `#[instrument(skip_all, err)]`. A span that crosses a boundary also gets an `otel.kind`: `server` for a request and `consumer` for one unit of timed work. A field that the function learns later starts as `field::Empty` and gets `Span::record`.
+- A `client` span comes from the client, not from the call sites. The Plex client carries `TracingMiddleware` from `reqwest-tracing`, which makes the span and injects the trace context for every call. The query functions of `storage` and `catalog` carry no attribute: sqlx reports every statement on the target `sqlx::query` inside the span of the caller.
+- Report an error once, with `report_error!("what failed", error)`, at the layer that handles it: `main`, `AppError::into_response`, or the body of a spawned task. A call that passes the error on uses `?`.
+- A metric is a field of an event: `monotonic_counter.`, `counter.`, or `histogram.` with the instrument name after the prefix. Every instrument starts with `watchkeep_`, a duration is a histogram in milliseconds, and every label is a word of an enum, never an id or a path.
+- Spawn with `spawn!(name, future)`, never `tokio::spawn`. Give the task the span of the caller with `.instrument(Span::current())` or a new `info_span!`.
+- An integration test starts the same layers with `init_goodies()`. `test_context` does it; a test without a context calls it itself.
 - A release is a `v*` tag. The workflow cross-compiles the arm64 binary inside the Dockerfile (`--platform=$BUILDPLATFORM`, `TARGETARCH`) and pushes a multi-arch image to GHCR.
 
 ## Plex facts

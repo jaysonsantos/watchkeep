@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::{Cursor, Read};
 use std::path::Path;
 use std::sync::LazyLock;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
 use eyre::{Result, WrapErr};
@@ -18,6 +18,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::PgPool;
+use tracing::{Span, field, instrument};
 use uuid::Uuid;
 use watchkeep_catalog::Catalog;
 use watchkeep_storage::bulk::{
@@ -33,6 +34,7 @@ use watchkeep_storage::model::{
 
 use crate::plex::payload::PLEX_GUID_SCHEME;
 use crate::scrobble::{FULL_PERCENT, episode_with_catalog, movie_with_catalog, show_with_catalog};
+use crate::telemetry::milliseconds;
 
 /// The `player` of a playback position that came from Trakt.
 const TRAKT_PLAYER: &str = "Trakt";
@@ -496,12 +498,24 @@ fn time_of(text: Option<&str>) -> Option<DateTime<Utc>> {
     non_empty(text).and_then(parse_iso)
 }
 
+/// Imports one Trakt export. The span holds what the import wrote, and the
+/// metrics hold the time and the number of runs.
+#[instrument(
+    skip_all,
+    err,
+    fields(
+        trakt.dry_run = options.dry_run,
+        trakt.plays = field::Empty,
+        trakt.ratings = field::Empty,
+    )
+)]
 pub async fn import_trakt_export(
     pool: &PgPool,
     catalog: Option<&Catalog>,
     zip_path: &Path,
     options: ImportOptions,
 ) -> Result<TraktImportReport> {
+    let started = Instant::now();
     let clock = options.clock;
     let now = clock.now();
     let bytes =
@@ -791,6 +805,13 @@ pub async fn import_trakt_export(
         report.playback_skipped,
         report.watchlist,
         report.hidden
+    );
+    let span = Span::current();
+    span.record("trakt.plays", report.plays);
+    span.record("trakt.ratings", report.ratings);
+    tracing::info!(
+        monotonic_counter.watchkeep_trakt_imports_total = 1_u64,
+        histogram.watchkeep_trakt_import_duration_ms = milliseconds(started.elapsed()),
     );
     Ok(report)
 }

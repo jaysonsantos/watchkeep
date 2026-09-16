@@ -36,6 +36,9 @@ services:
       WATCHKEEP_PLEX_ACCOUNTS: ${WATCHKEEP_PLEX_ACCOUNTS:-}
       WATCHKEEP_SYNC_INTERVAL_MINUTES: ${WATCHKEEP_SYNC_INTERVAL_MINUTES:-0}
       WATCHKEEP_WATCHED_THRESHOLD_PERCENT: ${WATCHKEEP_WATCHED_THRESHOLD_PERCENT:-85}
+      # The name of this process in the collector. Add OTEL_EXPORTER_OTLP_ENDPOINT
+      # and OTEL_EXPORTER_OTLP_HEADERS when a collector runs somewhere else.
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-watchkeep}
 
 volumes:
   postgres-data:

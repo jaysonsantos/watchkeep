@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 use chrono::{DateTime, NaiveDate, Utc};
 use eyre::Result;
 use serde::Serialize;
+use tracing::instrument;
 use uuid::Uuid;
 use watchkeep_catalog::{Catalog, CatalogEpisode};
 use watchkeep_storage::clock::{SharedClock, date_of};
@@ -79,6 +80,7 @@ impl Views {
     }
 
     /// Filters in memory, because the watched state needs the catalog episode counts.
+    #[instrument(skip(self), err)]
     pub async fn shows(
         &self,
         filter: WatchFilter,
@@ -122,6 +124,7 @@ impl Views {
         })
     }
 
+    #[instrument(skip(self), err)]
     pub async fn show(&self, id: Uuid) -> Result<Option<ShowDetail>> {
         let Some(show) = self.queries.show(id).await? else {
             return Ok(None);

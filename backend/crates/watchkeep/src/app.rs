@@ -16,11 +16,13 @@ use serde::Serialize;
 use sqlx::pool::PoolConnection;
 use sqlx::{PgPool, Postgres};
 use tower_http::services::{ServeDir, ServeFile};
+use tracing::Instrument;
 use watchkeep_catalog::Catalog;
 use watchkeep_storage::clock::{SharedClock, SystemClock};
 use watchkeep_storage::db;
 use watchkeep_storage::library::Library;
 use watchkeep_storage::queries::Queries;
+use watchkeep_telemetry::spawn;
 
 use crate::actions::Actions;
 use crate::config::Config;
@@ -28,6 +30,7 @@ use crate::csrf::{expected_host, is_cross_site_form_post};
 use crate::http::{self, ApiResult};
 use crate::plex::sync::{DEFAULT_PAGE_SIZE, SyncOptions, SyncReport, sync_plex_library};
 use crate::scrobble::Scrobbler;
+use crate::telemetry::{HttpMetrics, trace_request};
 use crate::views::Views;
 
 /// The path prefix of the Plex webhook. The origin check skips it.
@@ -37,6 +40,9 @@ pub const HEALTH_PATH: &str = "/healthz";
 
 /// The file that the single-page app boots from.
 const INDEX_FILE: &str = "index.html";
+
+/// The name of the task that runs one Plex library sync. tokio-console shows it.
+const SYNC_TASK: &str = "plex_sync";
 
 /// The outcome of a library sync. The error is shared, because concurrent callers get the same result.
 pub type SyncOutcome = Result<SyncReport, Arc<eyre::Report>>;
@@ -116,7 +122,8 @@ impl AppContext {
             page_size: DEFAULT_PAGE_SIZE,
         };
         let running_sync = self.running_sync.clone();
-        let handle = tokio::spawn(async move {
+        // The task keeps the span of the caller, so that the sync stays in its trace.
+        let task = async move {
             let result = sync_plex_library(&pool, catalog.as_ref(), &options, clock)
                 .await
                 .map_err(Arc::new);
@@ -124,7 +131,15 @@ impl AppContext {
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
             result
-        });
+        }
+        .instrument(tracing::Span::current());
+        let handle = match spawn!(SYNC_TASK, task) {
+            Ok(handle) => handle,
+            Err(error) => {
+                let report = Arc::new(eyre!(error));
+                return async move { Err(report) }.boxed().shared();
+            }
+        };
         let future: SyncFuture = async move {
             handle
                 .await
@@ -188,6 +203,12 @@ pub fn build_router(ctx: SharedContext) -> Router {
         .nest(API_PREFIX, http::api::routes())
         .fallback_service(static_service(&static_dir))
         .layer(middleware::from_fn_with_state(ctx.clone(), origin_guard))
+        // The span of the request wraps every other layer, and the matched path
+        // of the router is the route label of the metrics.
+        .layer(middleware::from_fn_with_state(
+            HttpMetrics::new(),
+            trace_request,
+        ))
         .with_state(ctx)
 }
 

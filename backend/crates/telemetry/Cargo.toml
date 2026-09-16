@@ -1,0 +1,27 @@
+[package]
+name = "watchkeep-telemetry"
+description = "Tracing, OTLP export, metrics, and error reporting for the Watchkeep binary."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# Test setup (`testing::init_goodies`). The integration tests enable it; the binary does not.
+testing = []
+
+[dependencies]
+color-eyre.workspace = true
+console-subscriber.workspace = true
+eyre.workspace = true
+http.workspace = true
+opentelemetry.workspace = true
+opentelemetry-otlp.workspace = true
+opentelemetry_sdk.workspace = true
+tracing.workspace = true
+tracing-error.workspace = true
+tracing-opentelemetry.workspace = true
+tracing-subscriber.workspace = true
