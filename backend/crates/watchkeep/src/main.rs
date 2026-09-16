@@ -166,11 +166,18 @@ async fn serve(config: Config) -> Result<()> {
         let task = async move {
             tokio::time::sleep(FIRST_SYNC_DELAY).await;
             loop {
-                // One span per run, because each run is one unit of work.
-                let span = tracing::info_span!("sync_timer", otel.kind = "consumer");
-                if let Err(error) = ctx.sync().instrument(span).await {
-                    report_error!("the timed sync failed", error);
+                // One span per run, because each run is one unit of work. The
+                // call to `sync` belongs inside the block: it spawns the work
+                // and takes the span of the caller, and the report of a failure
+                // belongs to the same span.
+                let span = tracing::info_span!(SYNC_TIMER_TASK, otel.kind = "consumer");
+                async {
+                    if let Err(error) = ctx.sync().await {
+                        report_error!("the timed sync failed", error);
+                    }
                 }
+                .instrument(span)
+                .await;
                 tokio::time::sleep(every).await;
             }
         };
