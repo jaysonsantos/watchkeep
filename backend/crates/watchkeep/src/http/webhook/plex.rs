@@ -12,7 +12,10 @@ use serde_json::Value;
 use tracing::{Span, field, instrument};
 use watchkeep_storage::library::WebhookLog;
 
-use super::{IgnoredResponse, WebhookQuery, WebhookResponse, truncate, unauthorized};
+use super::{
+    IgnoredResponse, OUTCOME_FAILED, OUTCOME_IGNORED, OUTCOME_REJECTED, WebhookQuery,
+    WebhookResponse, count_event, truncate, unauthorized,
+};
 use crate::app::SharedContext;
 use crate::http::{ApiResult, bad_request};
 use crate::plex::payload::{ParseResult, parse_plex_payload};
@@ -22,18 +25,6 @@ const PAYLOAD_FIELD: &str = "payload";
 
 const MULTIPART: &str = "multipart/form-data";
 const FORM_URLENCODED: &str = "application/x-www-form-urlencoded";
-
-/// The outcome label of an event that Watchkeep does not track.
-const OUTCOME_IGNORED: &str = "ignored";
-
-/// The outcome label of an event without a valid token or without a payload.
-const OUTCOME_REJECTED: &str = "rejected";
-
-/// The event label of a call that carried no Plex event name.
-const EVENT_NONE: &str = "none";
-
-/// The outcome label of a call that ended in an internal error.
-const OUTCOME_FAILED: &str = "failed";
 
 /// Plex sends `multipart/form-data` with a `payload` field that holds JSON.
 /// Some proxies forward plain JSON. Both shapes are accepted.
@@ -174,14 +165,4 @@ async fn handle(ctx: SharedContext, query: WebhookQuery, request: Request) -> Ap
             .unwrap_or_default()
     );
     Ok(Json(WebhookResponse { ok: true, result }).into_response())
-}
-
-/// One point per webhook call. The event name and the outcome are words of an
-/// enum, so the cardinality stays small.
-fn count_event(event: Option<&str>, outcome: &str) {
-    tracing::info!(
-        monotonic_counter.watchkeep_webhook_events_total = 1_u64,
-        plex_event = event.unwrap_or(EVENT_NONE),
-        webhook_outcome = outcome,
-    );
 }

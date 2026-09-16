@@ -18,6 +18,29 @@ use crate::scrobble::ScrobbleResult;
 /// Longer payloads are cut before they go into the webhook log.
 const MAX_LOGGED_PAYLOAD: usize = 64 * 1024;
 
+/// The outcome label of an event that Watchkeep does not track.
+pub(super) const OUTCOME_IGNORED: &str = "ignored";
+
+/// The outcome label of an event without a valid token, without a payload, or
+/// with a body that the endpoint refuses.
+pub(super) const OUTCOME_REJECTED: &str = "rejected";
+
+/// The event label of a call that carried no event name.
+pub(super) const EVENT_NONE: &str = "none";
+
+/// The outcome label of a call that ended in an internal error.
+pub(super) const OUTCOME_FAILED: &str = "failed";
+
+/// One point per webhook call, for both endpoints. The event name and the
+/// outcome are words of an enum, so the cardinality stays small.
+pub(super) fn count_event(event: Option<&str>, outcome: &str) {
+    tracing::info!(
+        monotonic_counter.watchkeep_webhook_events_total = 1_u64,
+        webhook_event = event.unwrap_or(EVENT_NONE),
+        webhook_outcome = outcome,
+    );
+}
+
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
 pub struct WebhookQuery {

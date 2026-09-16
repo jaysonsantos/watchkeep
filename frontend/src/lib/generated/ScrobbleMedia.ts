@@ -6,7 +6,7 @@ import type { TargetKind } from "./TargetKind";
 /**
  * The item that the sender played.
  */
-export type ScrobbleMedia = { type: TargetKind, title?: string, year?: number, ids: ScrobbleIds, 
+export type ScrobbleMedia = { type: TargetKind, title?: string, year?: number, ids?: ScrobbleIds, 
 /**
  * The season in TMDB order. Episodes only.
  */

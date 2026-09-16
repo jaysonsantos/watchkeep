@@ -14,7 +14,10 @@ use eyre::Result;
 use watchkeep_storage::library::{Library, WebhookLog};
 use watchkeep_storage::model::MediaRef;
 
-use super::{WebhookQuery, WebhookResponse, truncate, unauthorized};
+use super::{
+    OUTCOME_FAILED, OUTCOME_REJECTED, WebhookQuery, WebhookResponse, count_event, truncate,
+    unauthorized,
+};
 use crate::app::SharedContext;
 use crate::http::{ApiResult, ErrorResponse, bad_request};
 use crate::scrobble::event::{InvalidEvent, ScrobbleEvent};
@@ -51,7 +54,24 @@ pub async fn scrobble(
     headers: HeaderMap,
     body: Bytes,
 ) -> ApiResult {
+    let result = handle(ctx, query, headers, body).await;
+    // A call that fails counts too, else the counter hides exactly the events
+    // that Watchkeep lost.
+    if result.is_err() {
+        count_event(None, OUTCOME_FAILED);
+    }
+    result
+}
+
+/// The work of the endpoint. `scrobble` counts the outcome around it.
+async fn handle(
+    ctx: SharedContext,
+    query: WebhookQuery,
+    headers: HeaderMap,
+    body: Bytes,
+) -> ApiResult {
     if let Some(denied) = unauthorized(&ctx.config.webhook_token, &query, &headers) {
+        count_event(None, OUTCOME_REJECTED);
         return Ok(denied);
     }
     let content_type = headers
@@ -60,12 +80,16 @@ pub async fn scrobble(
         .unwrap_or_default()
         .to_ascii_lowercase();
     if !content_type.contains(JSON) {
+        count_event(None, OUTCOME_REJECTED);
         return Ok(bad_request("the body must be application/json"));
     }
     let text = String::from_utf8_lossy(&body).into_owned();
     let event = match serde_json::from_str::<ScrobbleEvent>(&text) {
         Ok(event) => event,
-        Err(error) => return Ok(bad_request(&error.to_string())),
+        Err(error) => {
+            count_event(None, OUTCOME_REJECTED);
+            return Ok(bad_request(&error.to_string()));
+        }
     };
 
     let logged = truncate(&text);
@@ -83,6 +107,7 @@ pub async fn scrobble(
         Ok(media) => media,
         Err(error) => {
             log(&ctx, entry(format!("{REFUSED}: {error}"), None)).await?;
+            count_event(Some(&event.event.log_name()), OUTCOME_REJECTED);
             return Ok(match error {
                 InvalidEvent::Missing(_) => bad_request(&error.to_string()),
                 InvalidEvent::Unidentified => unprocessable(&error.to_string()),
@@ -96,6 +121,7 @@ pub async fn scrobble(
         entry(result.action.to_string(), Some(result.title.clone())),
     )
     .await?;
+    count_event(Some(&event.event.log_name()), result.action.as_str());
     tracing::info!(
         "{} {} \"{}\"{}",
         event.event.log_name(),

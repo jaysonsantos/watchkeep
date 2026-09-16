@@ -111,6 +111,11 @@ fn tmdb_text(id: Option<&ScrobbleId>) -> Option<String> {
     tmdb_number(id_text(id).as_deref()).map(|id| id.to_string())
 }
 
+/// The ids of a body that may leave the whole `ids` object out.
+fn external_ids(ids: Option<&ScrobbleIds>) -> ExternalIds {
+    ids.map(ScrobbleIds::external).unwrap_or_default()
+}
+
 impl ScrobbleIds {
     fn external(&self) -> ExternalIds {
         ExternalIds {
@@ -131,7 +136,8 @@ pub struct ScrobbleShow {
     pub title: Option<String>,
     #[ts(optional)]
     pub year: Option<i32>,
-    pub ids: ScrobbleIds,
+    #[ts(optional)]
+    pub ids: Option<ScrobbleIds>,
 }
 
 /// The item that the sender played.
@@ -147,7 +153,8 @@ pub struct ScrobbleMedia {
     #[ts(optional)]
     pub year: Option<i32>,
     #[serde(default)]
-    pub ids: ScrobbleIds,
+    #[ts(optional)]
+    pub ids: Option<ScrobbleIds>,
     /// The season in TMDB order. Episodes only.
     #[serde(default)]
     #[ts(optional)]
@@ -170,7 +177,7 @@ impl ScrobbleMedia {
     /// The media reference that `resolve_target` takes, with the runtime the player measured.
     fn media_ref(&self, duration: Option<Duration>) -> Result<MediaRef, InvalidEvent> {
         let title = trimmed(self.title.as_deref());
-        let ids = self.ids.external();
+        let ids = external_ids(self.ids.as_ref());
         match self.kind {
             TargetKind::Movie => {
                 if ids.is_empty() && title.is_empty() {
@@ -192,7 +199,7 @@ impl ScrobbleMedia {
                     .ok_or(InvalidEvent::Missing(field::SHOW))?;
                 let season = self.season.ok_or(InvalidEvent::Missing(field::SEASON))?;
                 let number = self.number.ok_or(InvalidEvent::Missing(field::NUMBER))?;
-                let show_ids = show.ids.external();
+                let show_ids = external_ids(show.ids.as_ref());
                 let show_title = trimmed(show.title.as_deref());
                 // The show needs an identity of its own. The ids of the episode
                 // reach the show through the catalog only, and the catalog is

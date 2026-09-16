@@ -13,8 +13,8 @@ use eyre::Result;
 use serde_json::{Value, json};
 use uuid::Uuid;
 use watchkeep::http::header;
-use watchkeep_storage::library::ProgressInput;
-use watchkeep_storage::model::{PlayState, TargetKind};
+use watchkeep_storage::library::{Library, ProgressInput};
+use watchkeep_storage::model::{MediaKind, PlayState, TargetKind};
 
 /// The runtime of Heat in the catalog is 170 minutes.
 const HEAT_MS: i64 = 170 * 60 * 1_000;
@@ -560,6 +560,135 @@ async fn refuses_a_tmdb_id_that_names_nothing() -> Result<()> {
         );
     }
     assert_eq!(t.queries.stats().await?.movies, 0);
+    t.close().await
+}
+
+/// The checks of an event and its writes must not interleave with another
+/// event of the same item, so the handler holds the item for its transaction.
+/// A held item makes the next event wait; another item stays free.
+#[tokio::test]
+async fn an_event_waits_for_the_item_it_needs() -> Result<()> {
+    let t = test_context(|_| {}, false).await?;
+    let app = t.app();
+    let (_, body) = call(&app, scrobble_request(&scrobble_movie(json!({})))).await;
+    let movie: Uuid = body["targetId"].as_str().expect("an id").parse()?;
+
+    let mut held = t.pool.begin().await?;
+    Library::new(&mut *held, t.ctx.clock.clone())
+        .lock_target(TargetKind::Movie, movie)
+        .await?;
+
+    let next = scrobble_movie(json!({
+        "event_id": "01926f3c-2d3e-7f40-9b5c-6d7e8f9a0b1c",
+        "occurred_at": "2026-01-01T13:00:00Z",
+        "position_ms": 2_000_000,
+    }));
+    let waited = tokio::time::timeout(
+        Duration::from_millis(500),
+        call(&app, scrobble_request(&next)),
+    )
+    .await;
+    assert!(waited.is_err(), "the handler must wait for the held item");
+
+    // Another movie is free while the first one is held.
+    let other = json!({
+        "event_id": "01926f3d-3e4f-7051-8c6d-7e8f9a0b1c2d",
+        "event": "progress",
+        "occurred_at": common::START,
+        "client": "my-media-server",
+        "media": { "type": "movie", "title": "Collateral", "ids": { "tmdb": 4638 } },
+        "position_ms": 60_000
+    });
+    let free = tokio::time::timeout(
+        Duration::from_millis(500),
+        call(&app, scrobble_request(&other)),
+    )
+    .await
+    .expect("another item must not wait");
+    assert_eq!(free.0, StatusCode::OK);
+
+    held.rollback().await?;
+    let (status, _) = call(&app, scrobble_request(&next)).await;
+    assert_eq!(status, StatusCode::OK, "the item is free again");
+    t.close().await
+}
+
+/// Concurrent deliveries must still count one play, and must not deadlock on
+/// the lock or on the connection pool.
+#[tokio::test]
+async fn overlapping_plays_of_one_item_count_once() -> Result<()> {
+    let t = test_context(|_| {}, false).await?;
+    let app = t.app();
+    let ids = [
+        "01926f3b-1c2d-7e3f-8a4b-5c6d7e8f9a0b",
+        "01926f3c-2d3e-7f40-9b5c-6d7e8f9a0b1c",
+        "01926f3d-3e4f-7051-8c6d-7e8f9a0b1c2d",
+    ];
+    let calls = ids.map(|id| {
+        let app = app.clone();
+        let body = scrobble_movie(json!({
+            "event_id": id,
+            "event": "watched",
+            "occurred_at": "2026-01-01T12:00:00Z",
+            "position_ms": null,
+        }));
+        tokio::spawn(async move { call(&app, scrobble_request(&body)).await })
+    });
+    let mut actions = Vec::new();
+    for handle in calls {
+        let (status, body) = handle.await?;
+        assert_eq!(status, StatusCode::OK);
+        actions.push(body["action"].as_str().unwrap_or_default().to_owned());
+    }
+    assert_eq!(
+        actions.iter().filter(|action| *action == "play").count(),
+        1,
+        "exactly one of {actions:?} may be a play"
+    );
+    let movie = t.media_id(MediaKind::Movie, "Heat").await?;
+    let mut library = t.library().await?;
+    assert_eq!(library.play_count(TargetKind::Movie, movie).await?, 1);
+    drop(library);
+    t.close().await
+}
+
+#[tokio::test]
+async fn a_body_may_leave_the_ids_out() -> Result<()> {
+    let t = test_context(|_| {}, false).await?;
+    let app = t.app();
+    let (status, body) = call(
+        &app,
+        scrobble_request(&json!({
+            "event_id": "01926f3b-1c2d-7e3f-8a4b-5c6d7e8f9a0b",
+            "event": "watched",
+            "occurred_at": common::START,
+            "client": "my-media-server",
+            "media": { "type": "movie", "title": "Heat", "year": 1995 }
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["action"], "play");
+    assert_eq!(body["title"], "Heat (1995)");
+
+    let (status, body) = call(
+        &app,
+        scrobble_request(&json!({
+            "event_id": "01926f3c-2d3e-7f40-9b5c-6d7e8f9a0b1c",
+            "event": "watched",
+            "occurred_at": common::START,
+            "client": "my-media-server",
+            "media": {
+                "type": "episode",
+                "season": 1,
+                "number": 1,
+                "show": { "title": "Severance" }
+            }
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["action"], "play");
     t.close().await
 }
 

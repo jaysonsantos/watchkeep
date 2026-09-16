@@ -316,6 +316,16 @@ fn plex_account_allowed(config: &Config, event: &PlexEvent) -> bool {
     )
 }
 
+/// One point per event that the scrobbler applied, for both sources. Both
+/// labels are words of an enum, so the cardinality stays small.
+fn count_scrobble(event: &str, action: &str) {
+    tracing::info!(
+        monotonic_counter.watchkeep_scrobble_events_total = 1_u64,
+        scrobble_event = event,
+        scrobble_action = action,
+    );
+}
+
 /// The position as a percentage of the duration, with one decimal, capped at 100.
 pub fn percent_of(position: Duration, duration: Option<Duration>) -> Option<f64> {
     let duration = duration.filter(|duration| !duration.is_zero())?;
@@ -353,7 +363,7 @@ impl Scrobbler {
         skip_all,
         err,
         fields(
-            plex.event = event.event.as_str(),
+            scrobble.event = event.event.as_str(),
             target.kind = field::Empty,
             scrobble.action = field::Empty,
         )
@@ -371,12 +381,7 @@ impl Scrobbler {
             }
             Err(_) => SCROBBLE_ERROR,
         };
-        // Both labels are words of an enum, so the cardinality stays small.
-        tracing::info!(
-            monotonic_counter.watchkeep_scrobble_events_total = 1_u64,
-            plex_event = event.event.as_str(),
-            scrobble_action = action,
-        );
+        count_scrobble(event.event.as_str(), action);
         result
     }
 
@@ -421,8 +426,8 @@ impl Scrobbler {
     // region: generic scrobble
 
     /// Apply one event of `POST /webhook/scrobble`. The caller validated the body,
-    /// so the media reference is ready. The span carries what the scrobbler
-    /// decided, the same as the Plex entry.
+    /// so the media reference is ready. The span and the counter carry what the
+    /// scrobbler decided, the same as the Plex entry.
     #[instrument(
         skip_all,
         err,
@@ -438,11 +443,18 @@ impl Scrobbler {
         media: MediaRef,
     ) -> Result<ScrobbleResult> {
         let result = self.apply_scrobble_event(event, media).await;
-        if let Ok(applied) = &result {
-            let span = Span::current();
-            span.record("target.kind", applied.target_kind.as_str());
-            span.record("scrobble.action", applied.action.as_str());
-        }
+        let span = Span::current();
+        // A failed event counts too, else the counter hides exactly the events
+        // that need attention.
+        let action = match &result {
+            Ok(applied) => {
+                span.record("target.kind", applied.target_kind.as_str());
+                span.record("scrobble.action", applied.action.as_str());
+                applied.action.as_str()
+            }
+            Err(_) => SCROBBLE_ERROR,
+        };
+        count_scrobble(&event.event.log_name(), action);
         result
     }
 
@@ -470,6 +482,11 @@ impl Scrobbler {
         let result = {
             let mut library = Library::new(&mut *tx, self.clock.clone());
             let target = resolve_target(&mut library, self.catalog.as_ref(), media).await?;
+            // Every branch below reads the plays or the position and then
+            // writes. Two events of one item must not interleave between the
+            // read and the write, else two plays land inside the rewatch
+            // window, or a position re-opens an item that a play just closed.
+            library.lock_target(target.kind, target.id).await?;
             match event.event {
                 ScrobbleEventName::Start | ScrobbleEventName::Progress => {
                     self.scrobble_progress(&mut library, event, &target, PlayState::Playing)

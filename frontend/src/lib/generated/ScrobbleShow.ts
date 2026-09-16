@@ -4,4 +4,4 @@ import type { ScrobbleIds } from "./ScrobbleIds";
 /**
  * The show that owns an episode.
  */
-export type ScrobbleShow = { title?: string, year?: number, ids: ScrobbleIds, };
+export type ScrobbleShow = { title?: string, year?: number, ids?: ScrobbleIds, };

@@ -179,6 +179,9 @@ position alone and answers with `stale-event`. A play inside
 `WATCHKEEP_REWATCH_WINDOW_MINUTES` of a play that the item already has answers
 with `duplicate-play`, whether it is older or newer than that play.
 
+Events of one item apply one at a time, so two senders, or a sender and its
+own retry, cannot both pass a check and then both write.
+
 Set `WATCHKEEP_SCROBBLE_ACCOUNTS` to a comma-separated list of `account` values
 to accept only some viewers. The Webhooks page shows every event under the name
 `scrobble.<event>`.

@@ -451,6 +451,18 @@ impl<C: DerefMut<Target = PgConnection>> Library<C> {
         .await?)
     }
 
+    /// Hold the item until the transaction ends, so that the checks of a
+    /// scrobble event and its writes cannot interleave with another event of
+    /// the same item. The lock is advisory and transaction scoped: it needs a
+    /// transaction, and it never outlives one.
+    pub async fn lock_target(&mut self, kind: TargetKind, id: Uuid) -> Result<()> {
+        let key = format!("{}:{id}", kind.as_str());
+        sqlx::query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", key)
+            .execute(self.conn())
+            .await?;
+        Ok(())
+    }
+
     /// A play of the item inside `window` around `at`. Senders deliver events out
     /// of order, so the window looks forward and backward. A zero window matches nothing.
     pub async fn play_near(
