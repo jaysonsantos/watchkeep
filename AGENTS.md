@@ -55,7 +55,7 @@ The Rust sources live in `backend/crates/` and the SvelteKit sources in `fronten
 - Report an error once, with `report_error!("what failed", error)`, at the layer that handles it: `main`, `AppError::into_response`, or the body of a spawned task. A call that passes the error on uses `?`.
 - A metric is a field of an event: `monotonic_counter.`, `counter.`, or `histogram.` with the instrument name after the prefix. Every instrument starts with `watchkeep_`, a duration is a histogram in milliseconds, and every label is a word of an enum, never an id or a path.
 - Spawn with `spawn!(name, future)`, never `tokio::spawn`. Give the task the span of the caller with `.instrument(Span::current())` or a new `info_span!`.
-- An integration test starts the same layers with `init_goodies()`. `test_context` does it; a test without a context calls it itself.
+- A test that exercises the server starts the same layers with `init_goodies()`. `test_context` does it; a test that builds no context calls it itself (`tests/migrations.rs`). A test of a pure function, for example `tests/payload.rs`, needs no telemetry: it holds no span and makes no call.
 - A release is a `v*` tag. The workflow cross-compiles the arm64 binary inside the Dockerfile (`--platform=$BUILDPLATFORM`, `TARGETARCH`) and pushes a multi-arch image to GHCR.
 
 ## Plex facts
