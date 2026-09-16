@@ -80,7 +80,8 @@ impl Views {
     }
 
     /// Filters in memory, because the watched state needs the catalog episode counts.
-    #[instrument(skip(self), err)]
+    // The search text never goes on the span: it is what a person typed.
+    #[instrument(skip_all, err, fields(list.filter = filter.as_str(), list.sort = sort.as_str()))]
     pub async fn shows(
         &self,
         filter: WatchFilter,
@@ -124,7 +125,7 @@ impl Views {
         })
     }
 
-    #[instrument(skip(self), err)]
+    #[instrument(skip_all, err, fields(show.id = %id))]
     pub async fn show(&self, id: Uuid) -> Result<Option<ShowDetail>> {
         let Some(show) = self.queries.show(id).await? else {
             return Ok(None);

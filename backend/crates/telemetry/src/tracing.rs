@@ -6,6 +6,7 @@
 //! `OTEL_*` variables itself, so no collector address appears here.
 
 use std::net::IpAddr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use eyre::Result;
@@ -34,23 +35,34 @@ const EXPORT_TIMEOUT: Duration = Duration::from_secs(2);
 pub const EXPORT_GRACE: Duration = Duration::from_secs(1);
 
 /// Flushes the providers at the end of the process. `main` holds it.
-pub struct OtelGuard(SdkTracerProvider, SdkMeterProvider);
+pub struct OtelGuard {
+    tracer_provider: SdkTracerProvider,
+    meter_provider: SdkMeterProvider,
+    flushed: AtomicBool,
+}
 
 impl OtelGuard {
-    /// Sends what the providers hold. Call it before the process returns.
+    /// Sends what the providers hold. Call it before the process returns. A
+    /// second flush waits for the export timeout again, so `Drop` skips its own
+    /// flush after this call.
     pub fn force_flush(&self) {
-        if let Err(error) = self.0.force_flush() {
+        self.flushed.store(true, Ordering::Relaxed);
+        if let Err(error) = self.tracer_provider.force_flush() {
             ::tracing::warn!("cannot flush the spans: {error}");
         }
-        if let Err(error) = self.1.force_flush() {
+        if let Err(error) = self.meter_provider.force_flush() {
             ::tracing::warn!("cannot flush the metrics: {error}");
         }
     }
 }
 
 impl Drop for OtelGuard {
+    /// The last chance of a process that ends without a flush, for example after
+    /// a panic.
     fn drop(&mut self) {
-        self.force_flush();
+        if !self.flushed.load(Ordering::Relaxed) {
+            self.force_flush();
+        }
     }
 }
 
@@ -152,7 +164,11 @@ pub fn configure_tracing() -> Result<OtelGuard> {
         .with(ErrorLayer::default())
         .init();
     init_error_reporting()?;
-    Ok(OtelGuard(tracer_provider, meter_provider))
+    Ok(OtelGuard {
+        tracer_provider,
+        meter_provider,
+        flushed: AtomicBool::new(false),
+    })
 }
 
 /// The root span of a command. Every trace of the process descends from it.

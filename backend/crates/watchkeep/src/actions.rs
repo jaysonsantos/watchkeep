@@ -53,7 +53,7 @@ impl Actions {
             .filter(|media| media.kind == MediaKind::Show))
     }
 
-    #[instrument(skip(self), err)]
+    #[instrument(skip_all, err, fields(target.kind = kind.as_str(), target.id = %id))]
     pub async fn mark_watched(
         &self,
         kind: TargetKind,
@@ -83,7 +83,7 @@ impl Actions {
         Ok(true)
     }
 
-    #[instrument(skip(self), err)]
+    #[instrument(skip_all, err, fields(target.kind = kind.as_str(), target.id = %id))]
     pub async fn mark_unwatched(&self, kind: TargetKind, id: Uuid) -> Result<bool> {
         if !self.exists(kind, id).await? {
             return Ok(false);
@@ -100,7 +100,7 @@ impl Actions {
 
     /// Mark an episode by season and number. Creates the local episode row when
     /// the episode is known only through the catalog.
-    #[instrument(skip(self), err)]
+    #[instrument(skip_all, err, fields(show.id = %show_id, episode.season = season, episode.number = number, watched))]
     pub async fn mark_episode_by_number(
         &self,
         show_id: Uuid,
@@ -151,7 +151,7 @@ impl Actions {
 
     /// Add one play to every known episode of the show that has no play yet.
     /// Returns the number of changed episodes, or `None` when the show does not exist.
-    #[instrument(skip(self), err)]
+    #[instrument(skip_all, err, fields(show.id = %show_id))]
     pub async fn mark_show_watched(
         &self,
         show_id: Uuid,
@@ -217,7 +217,7 @@ impl Actions {
     }
 
     /// Returns the number of removed plays, or `None` when the show does not exist.
-    #[instrument(skip(self), err)]
+    #[instrument(skip_all, err, fields(show.id = %show_id))]
     pub async fn mark_show_unwatched(&self, show_id: Uuid) -> Result<Option<i64>> {
         if self.get_show(show_id).await?.is_none() {
             return Ok(None);
@@ -244,7 +244,8 @@ impl Actions {
     /// Add a movie or show by hand. With a TMDB id and a catalog, the catalog
     /// supplies the title, year, and poster. Otherwise the title is required.
     /// An item that already exists is returned, not duplicated.
-    #[instrument(skip(self), err)]
+    // The title of the input never goes on the span: it is what a person typed.
+    #[instrument(skip_all, err, fields(media.kind = input.kind.as_str(), tmdb_id = input.tmdb_id, watchlist = input.watchlist))]
     pub async fn add_media(&self, input: AddMediaInput) -> Result<Option<MediaRow>> {
         let tmdb_id = input.tmdb_id.filter(|id| *id > 0);
         let mut title = input
@@ -313,7 +314,7 @@ impl Actions {
         Ok(Some(row))
     }
 
-    #[instrument(skip(self), err)]
+    #[instrument(skip_all, err, fields(media.kind = kind.as_str(), media.id = %id, listed))]
     pub async fn set_watchlist(&self, kind: MediaKind, id: Uuid, listed: bool) -> Result<bool> {
         let mut library = self.library().await?;
         match library.get_media(id).await? {
@@ -328,7 +329,7 @@ impl Actions {
         Ok(true)
     }
 
-    #[instrument(skip(self), err)]
+    #[instrument(skip_all, err, fields(media.id = %id, hidden))]
     pub async fn set_hidden(&self, id: Uuid, hidden: bool) -> Result<bool> {
         let mut library = self.library().await?;
         if library.get_media(id).await?.is_none() {
@@ -338,12 +339,12 @@ impl Actions {
         Ok(true)
     }
 
-    #[instrument(skip(self), err)]
+    #[instrument(skip_all, err, fields(play.id = %play_id))]
     pub async fn remove_play(&self, play_id: Uuid) -> Result<bool> {
         self.library().await?.remove_play(play_id).await
     }
 
-    #[instrument(skip(self), err)]
+    #[instrument(skip_all, err, fields(target.kind = kind.as_str(), target.id = %id))]
     pub async fn clear_progress(&self, kind: TargetKind, id: Uuid) -> Result<()> {
         self.library().await?.clear_progress(kind, id).await
     }
