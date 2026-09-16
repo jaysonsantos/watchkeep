@@ -11,6 +11,7 @@
     ["/shows", "Shows"],
     ["/watchlist", "Watchlist"],
     ["/history", "History"],
+    ["/stats", "Statistics"],
     ["/add", "Add"],
     ["/webhooks", "Webhooks"],
   ];

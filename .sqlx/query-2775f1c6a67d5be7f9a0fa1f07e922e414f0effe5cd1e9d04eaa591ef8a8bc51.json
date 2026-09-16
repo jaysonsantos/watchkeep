@@ -1,0 +1,39 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT b.bucket AS \"bucket!\",\n                  COUNT(d.id) AS \"plays!\",\n                  COALESCE(SUM(d.runtime_ms), 0)::bigint AS \"runtime_ms!\"\n           FROM generate_series(0, $2) AS b(bucket)\n           LEFT JOIN play_details d ON b.bucket = CASE\n             WHEN $3::bool THEN EXTRACT(dow FROM d.watched_at AT TIME ZONE $1)\n             ELSE EXTRACT(hour FROM d.watched_at AT TIME ZONE $1)\n           END\n           GROUP BY b.bucket\n           ORDER BY b.bucket",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "bucket!",
+        "type_info": "Int4",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "plays!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "runtime_ms!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int4",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "2775f1c6a67d5be7f9a0fa1f07e922e414f0effe5cd1e9d04eaa591ef8a8bc51"
+}

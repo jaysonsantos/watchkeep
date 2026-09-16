@@ -723,6 +723,89 @@ tr:last-child td {
   color: var(--muted);
   font-size: 0.8rem;
 }
+/* Statistics: bar charts, share rows, and the two-column sections */
+.chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 160px;
+  padding: 0.9rem 1rem 0.4rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.chart .col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.chart .stem {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+}
+.chart .stem > span {
+  width: 100%;
+  border-radius: 4px 4px 2px 2px;
+  background: var(--accent);
+  opacity: 0.75;
+  transition: opacity 0.15s;
+}
+.chart .col:hover .stem > span {
+  opacity: 1;
+}
+.chart .stem > span.peak {
+  background: var(--accent-2);
+  opacity: 1;
+}
+.chart .tick {
+  height: 1.1rem;
+  margin-top: 0.35rem;
+  color: var(--muted);
+  font-size: 0.7rem;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.split {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 0.9rem 1rem;
+}
+.split-row {
+  display: grid;
+  grid-template-columns: 7rem 1fr 4.5rem 4rem;
+  align-items: center;
+  gap: 0.7rem;
+  font-size: 0.9rem;
+}
+.split-row .k {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.split-row .v {
+  text-align: right;
+  font-weight: 600;
+}
+.two-up {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 0 1.5rem;
+  align-items: start;
+}
+.two-up .list .row .what a {
+  font-weight: 600;
+}
+
 footer {
   text-align: center;
   color: var(--muted);
@@ -745,6 +828,12 @@ footer {
   }
   .list .row .when {
     min-width: 0;
+  }
+  .split-row {
+    grid-template-columns: 5.5rem 1fr 3.5rem;
+  }
+  .split-row .muted:last-child {
+    display: none;
   }
   header .quick {
     display: none;

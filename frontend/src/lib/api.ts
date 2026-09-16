@@ -60,6 +60,14 @@ export async function send<T = unknown>(method: "POST" | "DELETE", path: string,
   return (await response.json()) as T;
 }
 
+/** `/api/statistics` in one time zone. An empty name lets the server pick UTC. */
+export function statsUrl(timezone: string): string {
+  const params = new URLSearchParams();
+  if (timezone) params.set(QUERY.timezone, timezone);
+  const query = params.toString();
+  return query ? `${API_BASE}/statistics?${query}` : `${API_BASE}/statistics`;
+}
+
 export interface ListQuery {
   filter: WatchFilter;
   search: string;

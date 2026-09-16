@@ -169,6 +169,11 @@ impl Queries {
         Self { pool }
     }
 
+    /// The pool, for the aggregate reads in `statistics.rs`.
+    pub(crate) fn pool(&self) -> &PgPool {
+        &self.pool
+    }
+
     pub async fn stats(&self) -> Result<Stats> {
         Ok(sqlx::query_as!(
             Stats,

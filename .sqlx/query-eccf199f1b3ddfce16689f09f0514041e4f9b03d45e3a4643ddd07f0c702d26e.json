@@ -1,0 +1,42 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT player AS \"label!\",\n                  COUNT(*) AS \"plays!\",\n                  COALESCE(SUM(runtime_ms), 0)::bigint AS \"runtime_ms!\"\n           FROM play_details\n           WHERE player IS NOT NULL AND player <> ''\n           GROUP BY player\n           ORDER BY COUNT(*) DESC, player\n           LIMIT $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "label!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "play_details",
+            "name": "player"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "plays!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "runtime_ms!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true,
+      null,
+      null
+    ]
+  },
+  "hash": "eccf199f1b3ddfce16689f09f0514041e4f9b03d45e3a4643ddd07f0c702d26e"
+}

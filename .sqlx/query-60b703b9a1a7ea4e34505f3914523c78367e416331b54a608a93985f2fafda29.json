@@ -1,0 +1,93 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT media_id AS \"id!\",\n                  media_title AS \"title!\",\n                  media_year AS \"year?\",\n                  poster_path AS \"poster_path?\",\n                  COUNT(*) AS \"plays!\",\n                  COUNT(DISTINCT target_id) AS \"items!\",\n                  COALESCE(SUM(runtime_ms), 0)::bigint AS \"runtime_ms!\",\n                  MAX(watched_at) AS \"last_watched_at?\"\n           FROM play_details\n           WHERE target_kind = $1 AND media_id IS NOT NULL\n           GROUP BY media_id, media_title, media_year, poster_path\n           ORDER BY COALESCE(SUM(runtime_ms), 0)::bigint DESC, COUNT(*) DESC, media_title\n           LIMIT $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "play_details",
+            "name": "media_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "title!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "play_details",
+            "name": "media_title"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "year?",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "play_details",
+            "name": "media_year"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "poster_path?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "play_details",
+            "name": "poster_path"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "plays!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "items!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 6,
+        "name": "runtime_ms!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 7,
+        "name": "last_watched_at?",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      true,
+      true,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "60b703b9a1a7ea4e34505f3914523c78367e416331b54a608a93985f2fafda29"
+}

@@ -8,6 +8,7 @@ mod params;
 mod responses;
 mod search;
 mod shows;
+mod statistics;
 mod sync;
 mod watchlist;
 
@@ -33,6 +34,7 @@ pub fn routes() -> Router<SharedContext> {
         .merge(movies::routes())
         .merge(search::routes())
         .merge(shows::routes())
+        .merge(statistics::routes())
         .merge(sync::routes())
         .merge(watchlist::routes())
         .fallback(|| async { not_found() })

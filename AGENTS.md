@@ -9,7 +9,7 @@ The Rust sources live in `backend/crates/` and the SvelteKit sources in `fronten
 
 | Path | Purpose |
 |---|---|
-| `backend/crates/storage/` | The Watchkeep database. `migrations/` holds the SQL files that sqlx applies. `model.rs` has the rows, the text enums (`MediaKind`, `TargetKind`, `PlayState`, `RatingKind`, `PlaySource`), `new_id`, and the millisecond helpers. `library.rs` has writes and single-row reads on one connection. `queries.rs` has the list and detail reads. `bulk.rs` has set-based writes for imports. `clock.rs` has the `Clock` trait. |
+| `backend/crates/storage/` | The Watchkeep database. `migrations/` holds the SQL files that sqlx applies. `model.rs` has the rows, the text enums (`MediaKind`, `TargetKind`, `PlayState`, `RatingKind`, `PlaySource`), `new_id`, and the millisecond helpers. `library.rs` has writes and single-row reads on one connection. `queries.rs` has the list and detail reads. `statistics.rs` has the aggregate reads of the statistics page, over the `play_details` view. `bulk.rs` has set-based writes for imports. `clock.rs` has the `Clock` trait. |
 | `backend/crates/catalog/` | Read-only client of the TMDB catalog database. `schema.rs` embeds `catalog/schema.sql` with `include_str!` for the tests and the tools. |
 | `backend/crates/watchkeep/` | The server and the CLI. `config.rs` (clap `Cli`, `Config`, the `env` and `defaults` constants), `app.rs` (`AppContext`, router, static files), `http/api/` (one file per resource, typed query and response structs in `params.rs` and `responses.rs`), `http/webhook.rs`, `scrobble.rs`, `views.rs`, `actions.rs`, `plex/`, `trakt/`. |
 | `backend/crates/watchkeep/tests/` | Integration tests. `common/mod.rs` creates fresh databases per test and builds requests for the router. |
@@ -21,6 +21,7 @@ The Rust sources live in `backend/crates/` and the SvelteKit sources in `fronten
 | `frontend/src/lib/types.ts` | Re-exports the generated types. `Id` is the UUID string type. |
 | `.github/workflows/` | `ci.yml` runs the linters and the tests. `release.yml` builds and pushes the image on a `v*` tag. |
 | `frontend/src/lib/lists.ts`, `frontend/src/lib/format.ts` | List state (query keys in `QUERY`) and display helpers. |
+| `frontend/src/lib/stats.ts` | The time zone of the browser and the small computations of the statistics page. |
 | `catalog/schema.sql` | The contract of the central TMDB database: the tables that a mirror tool fills and that Watchkeep reads. Its integer columns are `bigint`; the catalog crate casts the small ones to `int` in SQL. |
 | `flake.nix` | The development shell. `.envrc` (`dotenv_if_exists`, `use flake`) and `.env` stay local. |
 

@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH days AS (\n             SELECT DISTINCT (watched_at AT TIME ZONE $1)::date AS day FROM play_details\n           ), islands AS (\n             SELECT day, day - (ROW_NUMBER() OVER (ORDER BY day))::int AS island FROM days\n           ), runs AS (\n             SELECT COUNT(*) AS length, MAX(day) AS last_day FROM islands GROUP BY island\n           )\n           SELECT\n             COALESCE(MAX(length), 0) AS \"longest!\",\n             COALESCE(MAX(length) FILTER (WHERE last_day >= ($2 AT TIME ZONE $1)::date - $3::int), 0) AS \"current!\"\n           FROM runs",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "longest!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "current!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Timestamptz",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "e0728223aa22c951db4367266e5863050f549065414a80b5103b9cb13d32d07c"
+}

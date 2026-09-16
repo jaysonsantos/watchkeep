@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COALESCE((SELECT name FROM pg_timezone_names WHERE name = $1), $2) AS \"name!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name!",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "0bed857177b6aa8106af7b7982e6cc1a109ada4c7fb4ec4e5c46413d07dcbe71"
+}
