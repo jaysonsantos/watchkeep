@@ -469,6 +469,101 @@ async fn a_position_does_not_re_open_a_watched_item() -> Result<()> {
 }
 
 #[tokio::test]
+async fn a_retried_unwatched_keeps_a_newer_play() -> Result<()> {
+    let t = test_context(|_| {}, false).await?;
+    let app = t.app();
+    let unwatch = scrobble_movie(json!({
+        "event": "unwatched",
+        "occurred_at": "2026-01-01T12:00:00Z",
+        "position_ms": null,
+    }));
+    let (_, body) = call(&app, scrobble_request(&unwatch)).await;
+    assert_eq!(body["action"], "unwatched");
+    let movie = body["targetId"].as_str().expect("an id").parse()?;
+
+    // The viewer watches it again, and only then does the sender retry the unwatch.
+    let mut watched = scrobble_movie(json!({
+        "event": "watched",
+        "occurred_at": "2026-01-02T20:00:00Z",
+        "position_ms": null,
+    }));
+    watched["event_id"] = other_id()["event_id"].clone();
+    let (_, body) = call(&app, scrobble_request(&watched)).await;
+    assert_eq!(body["action"], "play");
+
+    let (status, body) = call(&app, scrobble_request(&unwatch)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["action"], "stale-event");
+    let mut library = t.library().await?;
+    assert_eq!(
+        library.play_count(TargetKind::Movie, movie).await?,
+        1,
+        "the retry must not delete the newer play"
+    );
+    drop(library);
+    t.close().await
+}
+
+#[tokio::test]
+async fn refuses_a_position_that_is_not_a_position() -> Result<()> {
+    let t = test_context(|config| config.watched_threshold_percent = 85.0, false).await?;
+    let app = t.app();
+    // Seed an above-threshold position, so a fallback would record a play.
+    let (_, body) = call(
+        &app,
+        scrobble_request(&scrobble_movie(json!({
+            "position_ms": 9_500_000,
+            "duration_ms": HEAT_MS,
+        }))),
+    )
+    .await;
+    let movie = body["targetId"].as_str().expect("an id").parse()?;
+
+    let mut unknown = scrobble_movie(json!({
+        "event": "stop",
+        "occurred_at": "2026-01-01T14:00:00Z",
+        "position_ms": -1,
+    }));
+    unknown["event_id"] = other_id()["event_id"].clone();
+    let (status, _) = call(&app, scrobble_request(&unknown)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let mut library = t.library().await?;
+    assert_eq!(
+        library.play_count(TargetKind::Movie, movie).await?,
+        0,
+        "a sentinel position must not reuse the stored one"
+    );
+    drop(library);
+    t.close().await
+}
+
+#[tokio::test]
+async fn refuses_a_tmdb_id_that_names_nothing() -> Result<()> {
+    let t = test_context(|_| {}, false).await?;
+    let app = t.app();
+    for id in [json!(0), json!(-5), json!("not-a-number")] {
+        let (status, _) = call(
+            &app,
+            scrobble_request(&json!({
+                "event_id": "01926f3b-1c2d-7e3f-8a4b-5c6d7e8f9a0b",
+                "event": "watched",
+                "occurred_at": common::START,
+                "client": "my-media-server",
+                "media": { "type": "movie", "ids": { "tmdb": id } }
+            })),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{id} is not an identity"
+        );
+    }
+    assert_eq!(t.queries.stats().await?.movies, 0);
+    t.close().await
+}
+
+#[tokio::test]
 async fn the_body_duration_wins_over_the_catalog_runtime() -> Result<()> {
     let t = test_context(|config| config.watched_threshold_percent = 85.0, true).await?;
     let app = t.app();

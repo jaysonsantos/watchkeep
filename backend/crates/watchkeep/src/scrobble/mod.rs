@@ -421,8 +421,32 @@ impl Scrobbler {
     // region: generic scrobble
 
     /// Apply one event of `POST /webhook/scrobble`. The caller validated the body,
-    /// so the media reference is ready.
+    /// so the media reference is ready. The span carries what the scrobbler
+    /// decided, the same as the Plex entry.
+    #[instrument(
+        skip_all,
+        err,
+        fields(
+            scrobble.event = event.event.as_str(),
+            target.kind = field::Empty,
+            scrobble.action = field::Empty,
+        )
+    )]
     pub async fn apply_scrobble(
+        &self,
+        event: &ScrobbleEvent,
+        media: MediaRef,
+    ) -> Result<ScrobbleResult> {
+        let result = self.apply_scrobble_event(event, media).await;
+        if let Ok(applied) = &result {
+            let span = Span::current();
+            span.record("target.kind", applied.target_kind.as_str());
+            span.record("scrobble.action", applied.action.as_str());
+        }
+        result
+    }
+
+    async fn apply_scrobble_event(
         &self,
         event: &ScrobbleEvent,
         media: MediaRef,
@@ -660,6 +684,22 @@ impl Scrobbler {
             .filter(|stored| event.occurred_at < stored.updated_at)
         {
             return Ok(Self::stale_result(target, &stored));
+        }
+        // A play clears the position, so the position alone cannot show that
+        // the item moved on. A play that is newer than the event does.
+        if library
+            .last_play(target.kind, target.id)
+            .await?
+            .is_some_and(|play| event.occurred_at < play.watched_at)
+        {
+            return Ok(ScrobbleResult {
+                action: ScrobbleAction::StaleEvent,
+                target_kind: target.kind,
+                target_id: Some(target.id),
+                title: target.title.clone(),
+                position_ms: None,
+                percent: None,
+            });
         }
         library.remove_plays(target.kind, target.id).await?;
         library

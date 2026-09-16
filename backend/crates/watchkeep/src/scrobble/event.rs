@@ -12,7 +12,7 @@ use thiserror::Error;
 use uuid::Uuid;
 use watchkeep_storage::model::{
     EpisodeInput, EpisodeRef, ExternalIds, MediaRef, MovieRef, ShowRef, TargetKind, from_millis,
-    non_empty,
+    non_empty, tmdb_number,
 };
 use watchkeep_storage::text_enum;
 
@@ -104,12 +104,19 @@ fn id_text(id: Option<&ScrobbleId>) -> Option<String> {
     (!text.is_empty()).then(|| text.to_owned())
 }
 
+/// A TMDB id that the storage layer keeps. `0`, a negative number, and text
+/// that is not a number give `None`: they name no item, and a row that holds
+/// one of them could never match again.
+fn tmdb_text(id: Option<&ScrobbleId>) -> Option<String> {
+    tmdb_number(id_text(id).as_deref()).map(|id| id.to_string())
+}
+
 impl ScrobbleIds {
     fn external(&self) -> ExternalIds {
         ExternalIds {
             plex_guid: None,
             imdb: non_empty(self.imdb.as_deref().map(str::trim)).map(str::to_owned),
-            tmdb: id_text(self.tmdb.as_ref()),
+            tmdb: tmdb_text(self.tmdb.as_ref()),
             tvdb: id_text(self.tvdb.as_ref()),
         }
     }
@@ -275,7 +282,9 @@ impl ScrobbleEvent {
 
     /// The item of the event, once the body holds everything the event needs.
     pub fn media_ref(&self) -> Result<MediaRef, InvalidEvent> {
-        if self.event.needs_position() && self.position_ms.is_none() {
+        // `-1` is a "position unknown" sentinel for some players. It is not a
+        // position, so it must not fall back to the stored one.
+        if self.event.needs_position() && self.position().is_none() {
             return Err(InvalidEvent::Missing(field::POSITION_MS));
         }
         self.media.media_ref(self.duration())
