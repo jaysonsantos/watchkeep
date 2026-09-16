@@ -693,6 +693,36 @@ async fn a_body_may_leave_the_ids_out() -> Result<()> {
 }
 
 #[tokio::test]
+async fn an_event_without_a_title_keeps_the_stored_one() -> Result<()> {
+    let t = test_context(|_| {}, false).await?;
+    let app = t.app();
+    call(&app, scrobble_request(&scrobble_movie(json!({})))).await;
+
+    // The same movie from a sender that knows the id but not the title.
+    let (status, body) = call(
+        &app,
+        scrobble_request(&json!({
+            "event_id": "01926f3c-2d3e-7f40-9b5c-6d7e8f9a0b1c",
+            "event": "watched",
+            "occurred_at": common::START,
+            "client": "another-server",
+            "media": { "type": "movie", "ids": { "tmdb": 949 } }
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["title"], "Heat (1995)", "the stored title stays");
+    let movie = t.media_id(MediaKind::Movie, "Heat").await?;
+    let mut library = t.library().await?;
+    assert_eq!(
+        library.get_media(movie).await?.expect("the movie").title,
+        "Heat"
+    );
+    drop(library);
+    t.close().await
+}
+
+#[tokio::test]
 async fn the_body_duration_wins_over_the_catalog_runtime() -> Result<()> {
     let t = test_context(|config| config.watched_threshold_percent = 85.0, true).await?;
     let app = t.app();

@@ -232,7 +232,8 @@ impl<C: DerefMut<Target = PgConnection>> Library<C> {
                WHERE id = $11
                RETURNING id, kind AS "kind: MediaKind", title, year, plex_guid, imdb_id, tmdb_id, tvdb_id,
                          duration_ms, summary, poster_path, hidden_at, created_at, updated_at"#,
-            input.title,
+            // A source that sends ids alone has no title. It must not erase one.
+            non_empty(Some(input.title.trim())).unwrap_or(current.title.as_str()),
             input.year.or(current.year),
             input.ids.plex_guid.as_deref().or(current.plex_guid.as_deref()),
             input.ids.imdb.as_deref().or(current.imdb_id.as_deref()),
