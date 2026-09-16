@@ -574,7 +574,8 @@ tr:last-child td {
 }
 .np-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  /* The track shrinks with the viewport, so a narrow phone gets no sideways scroll. */
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
   gap: 0.9rem;
 }
 .np-card {

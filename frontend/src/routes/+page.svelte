@@ -1,17 +1,28 @@
 <script lang="ts">
+  import { invalidateAll } from "$app/navigation";
   import ActionButton from "$lib/components/ActionButton.svelte";
   import MediaTitle from "$lib/components/MediaTitle.svelte";
   import NowPlaying from "$lib/components/NowPlaying.svelte";
   import ProgressBar from "$lib/components/ProgressBar.svelte";
   import Thumb from "$lib/components/Thumb.svelte";
   import { fmtDate, fmtDuration, percent } from "$lib/format.ts";
-  import { PLAY_STATE, splitProgress } from "$lib/nowplaying.ts";
+  import { IDLE_REFRESH_MS, PLAY_STATE, REFRESH_MS, splitProgress } from "$lib/nowplaying.ts";
   import type { PageProps } from "./$types";
 
   let { data }: PageProps = $props();
 
   // A row that plays goes to the widget on top; the rest stay in the "In progress" list.
   const progress = $derived(splitProgress(data.inProgress, Date.now()));
+
+  // Plex writes a progress row only on an event, so the page asks for the rows again on a
+  // timer. It keeps the timer while nothing plays, to catch a play that starts later.
+  $effect(() => {
+    const every = progress.playing.length > 0 ? REFRESH_MS : IDLE_REFRESH_MS;
+    const timer = setInterval(() => {
+      void invalidateAll();
+    }, every);
+    return () => clearInterval(timer);
+  });
 
   const tiles = $derived([
     { label: "Movies watched", value: data.stats.movies_watched, total: data.stats.movies },

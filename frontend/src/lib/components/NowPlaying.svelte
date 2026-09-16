@@ -1,7 +1,6 @@
 <script lang="ts">
-  import { invalidateAll } from "$app/navigation";
   import { percent } from "$lib/format.ts";
-  import { fmtClock, livePosition, REFRESH_MS, TICK_MS } from "$lib/nowplaying.ts";
+  import { fmtClock, livePosition, TICK_MS } from "$lib/nowplaying.ts";
   import type { ProgressView } from "$lib/types.ts";
   import ActionButton from "./ActionButton.svelte";
   import MediaTitle from "./MediaTitle.svelte";
@@ -10,21 +9,15 @@
 
   let { entries, images }: { entries: ProgressView[]; images: string } = $props();
 
-  // The server writes a progress row only on a Plex event. The widget moves the position
-  // itself, and reloads the data of the page to see a pause, a stop, or another title.
+  // The server writes a progress row only on a Plex event, so the widget moves the
+  // position itself. The page reloads the rows on a timer.
   let now = $state(Date.now());
 
   $effect(() => {
     const tick = setInterval(() => {
       now = Date.now();
     }, TICK_MS);
-    const refresh = setInterval(() => {
-      void invalidateAll();
-    }, REFRESH_MS);
-    return () => {
-      clearInterval(tick);
-      clearInterval(refresh);
-    };
+    return () => clearInterval(tick);
   });
 </script>
 

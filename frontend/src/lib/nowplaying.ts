@@ -28,6 +28,9 @@ export const TICK_MS = SECOND_MS;
 /** How often the dashboard reloads its data while a row plays, to see a pause or a stop. */
 export const REFRESH_MS = 20 * SECOND_MS;
 
+/** How often the dashboard reloads its data while nothing plays, to see a play that starts. */
+export const IDLE_REFRESH_MS = 60 * SECOND_MS;
+
 /** A playing row stays live until this long after its expected end. A crashed player sends no stop. */
 const END_SLACK_MS = 30 * MINUTE_MS;
 
