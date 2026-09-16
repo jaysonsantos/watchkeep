@@ -187,6 +187,11 @@ impl<C: DerefMut<Target = PgConnection>> Library<C> {
                 return Ok(row);
             }
         }
+        // A source that sends ids only leaves the title empty. Such an item
+        // keeps its own row: a blank title matches every other blank title.
+        let Some(title) = non_empty(Some(title.trim())) else {
+            return Ok(None);
+        };
         Ok(sqlx::query_as!(
             MediaRow,
             r#"SELECT id, kind AS "kind: MediaKind", title, year, plex_guid, imdb_id, tmdb_id, tvdb_id,
@@ -560,6 +565,61 @@ impl<C: DerefMut<Target = PgConnection>> Library<C> {
         )
         .fetch_one(self.conn())
         .await?)
+    }
+
+    /// Save the position, but keep a stored position that is newer than
+    /// `updated_at`. `None` means the stored position won and nothing changed.
+    /// Two requests for one item can overlap, so the comparison belongs in the
+    /// statement, not between a read and a write.
+    pub async fn set_progress_if_newer(
+        &mut self,
+        input: ProgressInput,
+    ) -> Result<Option<ProgressRow>> {
+        let updated_at = input.updated_at.unwrap_or_else(|| self.now());
+        Ok(sqlx::query_as!(
+            ProgressRow,
+            r#"INSERT INTO progress (target_kind, target_id, position_ms, duration_ms, state, account, player, updated_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+               ON CONFLICT (target_kind, target_id) DO UPDATE SET
+                 position_ms = EXCLUDED.position_ms,
+                 duration_ms = COALESCE(EXCLUDED.duration_ms, progress.duration_ms),
+                 state = EXCLUDED.state,
+                 account = EXCLUDED.account,
+                 player = EXCLUDED.player,
+                 updated_at = EXCLUDED.updated_at
+               WHERE progress.updated_at <= EXCLUDED.updated_at
+               RETURNING target_kind AS "target_kind: TargetKind", target_id, position_ms, duration_ms, state AS "state: PlayState",
+                         account, player, updated_at"#,
+            input.kind.as_str(),
+            input.id,
+            to_millis(input.position),
+            millis(input.duration),
+            input.state.as_str(),
+            input.account,
+            input.player,
+            updated_at
+        )
+        .fetch_optional(self.conn())
+        .await?)
+    }
+
+    /// Delete the position unless it is newer than `at`. A play clears the
+    /// position, but never a position that a later event already wrote.
+    pub async fn clear_progress_if_older(
+        &mut self,
+        kind: TargetKind,
+        id: Uuid,
+        at: DateTime<Utc>,
+    ) -> Result<()> {
+        sqlx::query!(
+            "DELETE FROM progress WHERE target_kind = $1 AND target_id = $2 AND updated_at <= $3",
+            kind.as_str(),
+            id,
+            at
+        )
+        .execute(self.conn())
+        .await?;
+        Ok(())
     }
 
     pub async fn clear_progress(&mut self, kind: TargetKind, id: Uuid) -> Result<()> {

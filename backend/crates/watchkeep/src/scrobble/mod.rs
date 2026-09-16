@@ -8,7 +8,7 @@ use std::ops::DerefMut;
 use std::sync::Arc;
 use std::time::Duration;
 
-use eyre::Result;
+use eyre::{Result, eyre};
 use serde::Serialize;
 use sqlx::{PgConnection, PgPool};
 use tracing::{Span, field, instrument};
@@ -460,7 +460,7 @@ impl Scrobbler {
                     self.scrobble_play(&mut library, event, &target).await?
                 }
                 ScrobbleEventName::Unwatched => {
-                    Self::scrobble_unwatched(&mut library, &target).await?
+                    Self::scrobble_unwatched(&mut library, event, &target).await?
                 }
             }
         };
@@ -514,8 +514,8 @@ impl Scrobbler {
         if let Some(stored) = existing.filter(|stored| event.occurred_at < stored.updated_at) {
             return Ok(Self::stale_result(target, &stored));
         }
-        library
-            .set_progress(ProgressInput {
+        let written = library
+            .set_progress_if_newer(ProgressInput {
                 kind: target.kind,
                 id: target.id,
                 position,
@@ -526,6 +526,15 @@ impl Scrobbler {
                 updated_at: Some(event.occurred_at),
             })
             .await?;
+        // A request for the same item can commit between the read above and
+        // this write. The statement keeps the newer position; read it back.
+        if written.is_none() {
+            let stored = library
+                .get_progress(target.kind, target.id)
+                .await?
+                .ok_or_else(|| eyre!("the position of {} vanished", target.id))?;
+            return Ok(Self::stale_result(target, &stored));
+        }
         Ok(ScrobbleResult {
             action: ScrobbleAction::Progress,
             target_kind: target.kind,
@@ -597,7 +606,9 @@ impl Scrobbler {
             )
             .await?
             .is_some();
-        library.clear_progress(target.kind, target.id).await?;
+        library
+            .clear_progress_if_older(target.kind, target.id, event.occurred_at)
+            .await?;
         if duplicate {
             return Ok(result(ScrobbleAction::DuplicatePlay));
         }
@@ -616,12 +627,23 @@ impl Scrobbler {
     }
 
     /// Drop every play and the position, like `DELETE /api/movies/:id/watched`.
+    /// A late delivery leaves a position that the item gained after the event.
     async fn scrobble_unwatched<C: DerefMut<Target = PgConnection>>(
         library: &mut Library<C>,
+        event: &ScrobbleEvent,
         target: &ResolvedTarget,
     ) -> Result<ScrobbleResult> {
+        if let Some(stored) = library
+            .get_progress(target.kind, target.id)
+            .await?
+            .filter(|stored| event.occurred_at < stored.updated_at)
+        {
+            return Ok(Self::stale_result(target, &stored));
+        }
         library.remove_plays(target.kind, target.id).await?;
-        library.clear_progress(target.kind, target.id).await?;
+        library
+            .clear_progress_if_older(target.kind, target.id, event.occurred_at)
+            .await?;
         Ok(ScrobbleResult {
             action: ScrobbleAction::Unwatched,
             target_kind: target.kind,

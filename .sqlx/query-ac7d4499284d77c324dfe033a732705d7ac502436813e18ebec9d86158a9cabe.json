@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM progress WHERE target_kind = $1 AND target_id = $2 AND updated_at <= $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ac7d4499284d77c324dfe033a732705d7ac502436813e18ebec9d86158a9cabe"
+}

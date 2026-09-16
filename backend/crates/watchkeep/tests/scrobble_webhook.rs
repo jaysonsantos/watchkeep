@@ -11,7 +11,9 @@ use common::{
 };
 use eyre::Result;
 use serde_json::{Value, json};
+use uuid::Uuid;
 use watchkeep::http::header;
+use watchkeep_storage::library::ProgressInput;
 use watchkeep_storage::model::{PlayState, TargetKind};
 
 /// The runtime of Heat in the catalog is 170 minutes.
@@ -278,6 +280,153 @@ async fn a_retry_of_a_suppressed_play_stays_suppressed() -> Result<()> {
     assert_eq!(body["action"], "duplicate-play");
     let mut library = t.library().await?;
     assert_eq!(library.play_count(TargetKind::Movie, movie).await?, 2);
+    drop(library);
+    t.close().await
+}
+
+#[tokio::test]
+async fn a_late_unwatched_keeps_a_newer_position() -> Result<()> {
+    let t = test_context(|_| {}, false).await?;
+    let app = t.app();
+    let (_, body) = call(
+        &app,
+        scrobble_request(&scrobble_movie(json!({
+            "event": "watched",
+            "occurred_at": "2026-01-01T12:00:00Z",
+            "position_ms": null,
+        }))),
+    )
+    .await;
+    let movie = body["targetId"].as_str().expect("an id").parse()?;
+    let mut newer = scrobble_movie(json!({
+        "occurred_at": "2026-01-01T13:00:00Z",
+        "position_ms": 600_000,
+    }));
+    newer["event_id"] = other_id()["event_id"].clone();
+    call(&app, scrobble_request(&newer)).await;
+
+    // The unwatch is older than the position that the item has now.
+    let (status, body) = call(
+        &app,
+        scrobble_request(&scrobble_movie(json!({
+            "event_id": "01926f3d-3e4f-7051-8c6d-7e8f9a0b1c2d",
+            "event": "unwatched",
+            "occurred_at": "2026-01-01T12:30:00Z",
+            "position_ms": null,
+        }))),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["action"], "stale-event");
+    let mut library = t.library().await?;
+    assert_eq!(library.play_count(TargetKind::Movie, movie).await?, 1);
+    assert_eq!(
+        library
+            .get_progress(TargetKind::Movie, movie)
+            .await?
+            .expect("the newer position stays")
+            .position(),
+        Duration::from_secs(600)
+    );
+    drop(library);
+    t.close().await
+}
+
+#[tokio::test]
+async fn movies_without_a_title_keep_their_own_row() -> Result<()> {
+    let t = test_context(|_| {}, false).await?;
+    let app = t.app();
+    let by_id = |event_id: &str, tmdb: i64| {
+        scrobble_request(&json!({
+            "event_id": event_id,
+            "event": "watched",
+            "occurred_at": common::START,
+            "client": "my-media-server",
+            "media": { "type": "movie", "ids": { "tmdb": tmdb } }
+        }))
+    };
+    let (_, first) = call(&app, by_id("01926f3b-1c2d-7e3f-8a4b-5c6d7e8f9a0b", 949)).await;
+    let (_, second) = call(&app, by_id("01926f3c-2d3e-7f40-9b5c-6d7e8f9a0b1c", 4638)).await;
+    assert_eq!(first["action"], "play");
+    assert_eq!(second["action"], "play");
+    assert_ne!(
+        first["targetId"], second["targetId"],
+        "two TMDB ids are two movies, even without a title"
+    );
+    assert_eq!(t.queries.stats().await?.movies, 2);
+    t.close().await
+}
+
+/// Two requests for one item can overlap, so the order rule lives in the
+/// statement. These are the two writes that the handler uses.
+#[tokio::test]
+async fn the_statements_refuse_to_overwrite_a_newer_position() -> Result<()> {
+    let t = test_context(|_| {}, false).await?;
+    let app = t.app();
+    let (_, body) = call(
+        &app,
+        scrobble_request(&scrobble_movie(json!({
+            "occurred_at": "2026-01-01T13:00:00Z",
+            "position_ms": 600_000,
+        }))),
+    )
+    .await;
+    let movie: Uuid = body["targetId"].as_str().expect("an id").parse()?;
+    let mut library = t.library().await?;
+    let write_at = |time: &str| ProgressInput {
+        kind: TargetKind::Movie,
+        id: movie,
+        position: Duration::from_secs(1),
+        duration: None,
+        state: PlayState::Playing,
+        account: None,
+        player: None,
+        updated_at: Some(at(time)),
+    };
+
+    assert!(
+        library
+            .set_progress_if_newer(write_at("2026-01-01T12:00:00Z"))
+            .await?
+            .is_none(),
+        "an older write changes nothing"
+    );
+    assert_eq!(
+        library
+            .get_progress(TargetKind::Movie, movie)
+            .await?
+            .expect("progress")
+            .position(),
+        Duration::from_secs(600)
+    );
+    assert!(
+        library
+            .set_progress_if_newer(write_at("2026-01-01T14:00:00Z"))
+            .await?
+            .is_some(),
+        "a newer write wins"
+    );
+
+    library
+        .clear_progress_if_older(TargetKind::Movie, movie, at("2026-01-01T13:00:00Z"))
+        .await?;
+    assert!(
+        library
+            .get_progress(TargetKind::Movie, movie)
+            .await?
+            .is_some(),
+        "an older clear keeps the newer position"
+    );
+    library
+        .clear_progress_if_older(TargetKind::Movie, movie, at("2026-01-01T14:00:00Z"))
+        .await?;
+    assert!(
+        library
+            .get_progress(TargetKind::Movie, movie)
+            .await?
+            .is_none(),
+        "a clear at the time of the position removes it"
+    );
     drop(library);
     t.close().await
 }
