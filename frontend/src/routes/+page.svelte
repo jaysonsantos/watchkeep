@@ -1,12 +1,28 @@
 <script lang="ts">
+  import { invalidateAll } from "$app/navigation";
   import ActionButton from "$lib/components/ActionButton.svelte";
   import MediaTitle from "$lib/components/MediaTitle.svelte";
+  import NowPlaying from "$lib/components/NowPlaying.svelte";
   import ProgressBar from "$lib/components/ProgressBar.svelte";
   import Thumb from "$lib/components/Thumb.svelte";
   import { fmtDate, fmtDuration, percent } from "$lib/format.ts";
+  import { IDLE_REFRESH_MS, PLAY_STATE, REFRESH_MS, splitProgress } from "$lib/nowplaying.ts";
   import type { PageProps } from "./$types";
 
   let { data }: PageProps = $props();
+
+  // A row that plays goes to the widget on top; the rest stay in the "In progress" list.
+  const progress = $derived(splitProgress(data.inProgress, Date.now()));
+
+  // Plex writes a progress row only on an event, so the page asks for the rows again on a
+  // timer. It keeps the timer while nothing plays, to catch a play that starts later.
+  $effect(() => {
+    const every = progress.playing.length > 0 ? REFRESH_MS : IDLE_REFRESH_MS;
+    const timer = setInterval(() => {
+      void invalidateAll();
+    }, every);
+    return () => clearInterval(timer);
+  });
 
   const tiles = $derived([
     { label: "Movies watched", value: data.stats.movies_watched, total: data.stats.movies },
@@ -26,6 +42,10 @@
   {#if data.syncConfigured}<ActionButton action="sync" label="Sync Plex library" />{/if}
 </div>
 
+{#if progress.playing.length > 0}
+  <NowPlaying entries={progress.playing} images={data.images} />
+{/if}
+
 <div class="tiles">
   {#each tiles as tile (tile.label)}
     <div class="tile">
@@ -43,18 +63,18 @@
   </div>
 {/if}
 
-<h2>In progress <span class="count">{data.inProgress.length}</span></h2>
-{#if data.inProgress.length === 0}
+<h2>In progress <span class="count">{progress.rest.length}</span></h2>
+{#if progress.rest.length === 0}
   <div class="empty">Nothing in progress. Play something on Plex.</div>
 {:else}
   <div class="progress-grid">
-    {#each data.inProgress as entry (`${entry.target_kind}:${entry.target_id}`)}
+    {#each progress.rest as entry (`${entry.target_kind}:${entry.target_id}`)}
       <div class="progress-card">
         <Thumb images={data.images} path={entry.poster_path} />
         <div class="info">
           <div class="t"><MediaTitle {entry} /></div>
           <div class="row">
-            <span class="badge" class:ok={entry.state === "playing"}>{entry.state}</span>
+            <span class="badge" class:ok={entry.state === PLAY_STATE.playing}>{entry.state}</span>
             <span>
               {percent(entry.position_ms, entry.duration_ms)}% · {fmtDuration(entry.position_ms)}{entry.duration_ms ? ` / ${fmtDuration(entry.duration_ms)}` : ""}
             </span>
