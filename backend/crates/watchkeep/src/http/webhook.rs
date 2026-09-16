@@ -122,11 +122,9 @@ fn truncate(text: &str) -> String {
 /// and the outcome, and one counter counts the events by both.
 #[instrument(
     skip_all,
-    fields(
-        plex.event = field::Empty,
-        plex.account = field::Empty,
-        webhook.outcome = field::Empty,
-    )
+    // The account of the event is the name of a person, so it stays off the
+    // span. The webhook log keeps it for the UI.
+    fields(plex.event = field::Empty, webhook.outcome = field::Empty)
 )]
 async fn plex(
     State(ctx): State<SharedContext>,
@@ -198,9 +196,6 @@ async fn plex(
 
     let span = Span::current();
     span.record("plex.event", event.event.as_str());
-    if let Some(account) = event.account.as_deref() {
-        span.record("plex.account", account);
-    }
     let result = ctx.scrobbler.apply(&event).await?;
     span.record("webhook.outcome", result.action.as_str());
     library
