@@ -15,6 +15,10 @@ use uuid::{NoContext, Timestamp, Uuid};
 /// The text format of a calendar date, for example `2022-02-17`.
 pub const DATE_FORMAT: &str = "%Y-%m-%d";
 
+/// Specials live in season 0. They do not count as episodes to watch, so a
+/// query and a view that measure the progress of a show both leave them out.
+pub const SPECIALS_SEASON: i32 = 0;
+
 /// A text column holds a word that is not one of the allowed values.
 #[derive(Debug, Error)]
 #[error("invalid kind: {0}")]

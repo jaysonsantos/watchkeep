@@ -15,6 +15,7 @@ use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use eyre::Result;
 use serde::Serialize;
+use tracing::{Span, field, instrument};
 use uuid::Uuid;
 use watchkeep_catalog::{Candidate, Catalog, CatalogMovie, CatalogShow, GenreWeights, TasteFacts};
 use watchkeep_storage::clock::{SharedClock, date_of};
@@ -366,6 +367,13 @@ impl Recommender {
     }
 
     /// Without a catalog there is nothing to recommend, so every list is empty.
+    // The titles of the library are the watch history of a person, so no title
+    // goes on the span. The counts say enough to read the latency.
+    #[instrument(
+        skip_all,
+        err,
+        fields(taste.items = field::Empty, catalog.enabled = self.catalog.is_some())
+    )]
     pub async fn recommendations(&self) -> Result<Recommendations> {
         let Some(catalog) = &self.catalog else {
             return Ok(Recommendations::default());
@@ -394,6 +402,7 @@ impl Recommender {
             &episode_totals,
             now,
         );
+        Span::current().record("taste.items", taste.watched_items);
         let movie_genres = unit_vector(&taste.movie_genres);
         let show_genres = unit_vector(&taste.show_genres);
         let collection_ids = taste.collection_ids();

@@ -181,6 +181,51 @@ async fn lists_a_finished_show_that_still_makes_episodes() -> Result<()> {
     t.close().await
 }
 
+/// The catalog total of a show counts the regular seasons only, so the counts
+/// of the profile must do the same. A watched special would otherwise stand
+/// for an episode that nobody watched.
+#[tokio::test]
+async fn leaves_the_specials_of_a_show_out_of_the_taste_counts() -> Result<()> {
+    let t = test_context(|_| {}, true).await?;
+    seed_recommendations(t.catalog_pool.as_ref().expect("a catalog pool")).await?;
+    let (_, show) = call(
+        &t.app(),
+        json_request(Method::POST, "/api/shows", &json!({ "tmdb_id": 95396 })),
+    )
+    .await;
+    let show_id: Uuid = id_of(&show);
+    // Season 0 episode 1 is the only episode that this library holds.
+    let (status, _) = call(
+        &t.app(),
+        json_request(
+            Method::POST,
+            &format!("/api/shows/{show_id}/seasons/0/episodes/1/watched"),
+            &json!({}),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let item = t
+        .queries
+        .taste()
+        .await?
+        .into_iter()
+        .find(|item| item.id == show_id)
+        .expect("the show");
+    assert_eq!(item.watched_count, 0, "a special is no watched episode");
+    assert_eq!(item.play_count, 0, "a play of a special does not count");
+    assert_eq!(item.episode_count, 0, "a special is no episode to watch");
+    assert_eq!(item.last_watched_at, None);
+
+    let (_, body) = get(&t.app(), PATH).await;
+    assert_eq!(
+        body["profile"]["items"], 0,
+        "the show feeds no taste, so nothing is watched"
+    );
+    t.close().await
+}
+
 /// Plex and Trakt rate episodes far more often than shows, so a show without a
 /// rating of its own takes the average of the ratings of its episodes.
 #[tokio::test]
