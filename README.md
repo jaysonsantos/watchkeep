@@ -402,6 +402,24 @@ GitHub Actions run the same linters and tests on every push and pull request
 (`.github/workflows/release.yml`). The Dockerfile cross-compiles the arm64
 binary, so one amd64 runner builds both platforms.
 
+## Make a release
+
+The commit messages follow [Conventional Commits](https://www.conventionalcommits.org).
+git-cliff reads them and writes `CHANGELOG.md`.
+
+```
+scripts/release.sh                            # the version comes from the commits
+scripts/release.sh 0.3.0                      # the version comes from the argument
+git push --follow-tags                        # start the release workflow
+```
+
+The script computes the next version, writes it into `Cargo.toml` and
+`package.json`, regenerates `CHANGELOG.md`, commits, and makes the annotated
+tag. A `feat` commit bumps the minor number and a `fix` commit bumps the patch
+number. The version is below 1.0.0, so a breaking change bumps the minor number
+too. The workflow then pushes the image and publishes the GitHub release with
+the notes from the tag.
+
 Without the flake: Rust 1.94 or newer, Node 24, pnpm, Docker (the tests pull
 the Postgres image), and sqlx-cli 0.9,
 installed with

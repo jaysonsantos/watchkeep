@@ -1,8 +1,9 @@
 # Every linter of the repository. Run all of them with `prek run --all-files`,
 # and `prek install` once to run them on each commit. prek and the tools come
 # from the nix flake; Biome comes from package.json.
-# `.sqlx` (sqlx-cli) and `frontend/src/lib/generated` (ts-rs) are generated files.
-exclude: ^(\.sqlx/|frontend/src/lib/generated/)
+# `.sqlx` (sqlx-cli), `frontend/src/lib/generated` (ts-rs), and `CHANGELOG.md`
+# (git-cliff) are generated files.
+exclude: ^(\.sqlx/|frontend/src/lib/generated/|CHANGELOG\.md$)
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0

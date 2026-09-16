@@ -16,11 +16,11 @@ The Rust sources live in `backend/crates/` and the SvelteKit sources in `fronten
 | `backend/crates/watchkeep/tests/` | Integration tests. `common/mod.rs` creates fresh databases per test and builds requests for the router. |
 | `.sqlx/` | Offline query data of the whole workspace. Regenerate it after a change to a query or a migration. |
 | `.cargo/config.toml` | The ts-rs settings: where the TypeScript types go, and `i64` as `number`. Also `--cfg tokio_unstable`, which the named tasks and tokio-console need. The Dockerfile copies the file for that reason. |
-| `scripts/` | `test-db.sh` starts a throwaway Postgres for a command. `sqlx-prepare.sh` regenerates the offline query data. |
+| `scripts/` | `test-db.sh` starts a throwaway Postgres for a command. `sqlx-prepare.sh` regenerates the offline query data. `release.sh` bumps the version and tags the release. |
 | `frontend/src/lib/api.ts` | The API client. `ActionName` lists the buttons of the UI. |
 | `frontend/src/lib/generated/` | The API types, written by ts-rs from the Rust structs. Do not edit. |
 | `frontend/src/lib/types.ts` | Re-exports the generated types. `Id` is the UUID string type. |
-| `.github/workflows/` | `ci.yml` runs the linters and the tests. `release.yml` builds and pushes the image on a `v*` tag. |
+| `.github/workflows/` | `ci.yml` runs the linters and the tests. `release.yml` builds and pushes the image on a `v*` tag, then publishes the GitHub release. |
 | `frontend/src/lib/lists.ts`, `frontend/src/lib/format.ts` | List state (query keys in `QUERY`) and display helpers. |
 | `frontend/src/lib/stats.ts` | The time zone of the browser and the small computations of the statistics page. |
 | `catalog/schema.sql` | The contract of the central TMDB database: the tables that a mirror tool fills and that Watchkeep reads. Its integer columns are `bigint`; the catalog crate casts the small ones to `int` in SQL. |
@@ -57,7 +57,8 @@ The Rust sources live in `backend/crates/` and the SvelteKit sources in `fronten
 - A metric is a field of an event: `monotonic_counter.`, `counter.`, or `histogram.` with the instrument name after the prefix. Every instrument starts with `watchkeep_`, a duration is a histogram in milliseconds, and every label is a word of an enum, never an id or a path.
 - Spawn with `spawn!(name, future)`, never `tokio::spawn`. Give the task the span of the caller with `.instrument(Span::current())` or a new `info_span!`.
 - A test that exercises the server starts the same layers with `init_goodies()`. `test_context` does it; a test that builds no context calls it itself (`tests/migrations.rs`). A test of a pure function, for example `tests/payload.rs`, needs no telemetry: it holds no span and makes no call.
-- A release is a `v*` tag. The workflow cross-compiles the arm64 binary inside the Dockerfile (`--platform=$BUILDPLATFORM`, `TARGETARCH`) and pushes a multi-arch image to GHCR.
+- A release is a `v*` tag. The workflow cross-compiles the arm64 binary inside the Dockerfile (`--platform=$BUILDPLATFORM`, `TARGETARCH`), pushes a multi-arch image to GHCR, and publishes the GitHub release with the message of the annotated tag.
+- Make a release only with `scripts/release.sh`, then `git push --follow-tags`. The script takes the version from the Conventional Commits with git-cliff (`cliff.toml`), writes it into `Cargo.toml` and `package.json`, and regenerates `CHANGELOG.md`. Never edit `CHANGELOG.md` and never write a version number by hand.
 
 ## Plex facts
 

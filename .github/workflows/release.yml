@@ -1,5 +1,6 @@
 # A version tag (v1.2.3) builds the image for linux/amd64 and linux/arm64 and pushes
-# it to GHCR as ghcr.io/<owner>/watchkeep:1.2.3, :1.2, and :latest.
+# it to GHCR as ghcr.io/<owner>/watchkeep:1.2.3, :1.2, and :latest. It then publishes
+# the GitHub release with the notes that `scripts/release.sh` wrote into the tag.
 # The Dockerfile cross-compiles the arm64 binary, so one amd64 runner builds both.
 name: Release image
 
@@ -44,3 +45,22 @@ jobs:
           cache-to: type=gha,mode=max
           # One manifest per platform, without the attestation entries.
           provenance: false
+
+  release:
+    needs: image
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # The whole history, because the notes come from the annotated tag.
+          fetch-depth: 0
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          git tag --list "$TAG" --format='%(contents:body)' > "$RUNNER_TEMP/notes.md"
+          gh release create "$TAG" --verify-tag --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md"

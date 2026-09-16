@@ -36,6 +36,8 @@
               pkgs.pnpm
               # psql, for the dev databases
               pkgs.postgresql
+              # the changelog and the version bump (scripts/release.sh)
+              pkgs.git-cliff
               # the client of the tokio-console layer (CONSOLE_SUBSCRIBER=<port>)
               pkgs.tokio-console
               # linters, run together by `prek run --all-files` (.pre-commit-config.yaml)
