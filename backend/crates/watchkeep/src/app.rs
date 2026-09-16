@@ -29,6 +29,7 @@ use crate::config::Config;
 use crate::csrf::{expected_host, is_cross_site_form_post};
 use crate::http::{self, ApiResult};
 use crate::plex::sync::{DEFAULT_PAGE_SIZE, SyncOptions, SyncReport, sync_plex_library};
+use crate::recommend::Recommender;
 use crate::scrobble::Scrobbler;
 use crate::telemetry::{HttpMetrics, trace_request};
 use crate::views::Views;
@@ -58,6 +59,7 @@ pub struct AppContext {
     pub queries: Queries,
     pub views: Views,
     pub actions: Actions,
+    pub recommender: Recommender,
     running_sync: Arc<Mutex<Option<SyncFuture>>>,
 }
 
@@ -88,6 +90,7 @@ impl AppContext {
             scrobbler: Scrobbler::new(pool.clone(), config.clone(), catalog.clone(), clock.clone()),
             views: Views::new(queries.clone(), catalog.clone(), clock.clone()),
             actions: Actions::new(pool.clone(), catalog.clone(), clock.clone()),
+            recommender: Recommender::new(queries.clone(), catalog.clone(), clock.clone()),
             queries,
             pool,
             catalog_pool,

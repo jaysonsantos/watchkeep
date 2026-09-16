@@ -9,6 +9,7 @@
     ["/", "Dashboard"],
     ["/movies", "Movies"],
     ["/shows", "Shows"],
+    ["/recommendations", "Recommended"],
     ["/watchlist", "Watchlist"],
     ["/history", "History"],
     ["/stats", "Statistics"],

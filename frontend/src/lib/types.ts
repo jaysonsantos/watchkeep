@@ -3,6 +3,7 @@
  * Regenerate with `cargo test --workspace --lib export_bindings`; prek checks that they are current.
  */
 
+export type { AddMediaBody } from "./generated/AddMediaBody.ts";
 export type { BucketCount } from "./generated/BucketCount.ts";
 export type { CatalogMovie } from "./generated/CatalogMovie.ts";
 export type { CatalogShow } from "./generated/CatalogShow.ts";
@@ -18,6 +19,8 @@ export type { PeriodCount } from "./generated/PeriodCount.ts";
 export type { PlayState } from "./generated/PlayState.ts";
 export type { PlayTotals } from "./generated/PlayTotals.ts";
 export type { ProgressView } from "./generated/ProgressView.ts";
+export type { Recommendation } from "./generated/Recommendation.ts";
+export type { Recommendations } from "./generated/Recommendations.ts";
 export type { SearchResult } from "./generated/SearchResult.ts";
 export type { SearchResults } from "./generated/SearchResults.ts";
 export type { ServerConfig } from "./generated/ServerConfig.ts";
@@ -28,6 +31,8 @@ export type { Statistics } from "./generated/Statistics.ts";
 export type { Stats } from "./generated/Stats.ts";
 export type { Streak } from "./generated/Streak.ts";
 export type { TargetKind } from "./generated/TargetKind.ts";
+export type { TasteProfile } from "./generated/TasteProfile.ts";
+export type { TasteShare } from "./generated/TasteShare.ts";
 export type { TopItem } from "./generated/TopItem.ts";
 export type { WatchFilter } from "./generated/WatchFilter.ts";
 export type { WatchlistItem } from "./generated/WatchlistItem.ts";

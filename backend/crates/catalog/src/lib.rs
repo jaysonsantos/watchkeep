@@ -62,6 +62,13 @@ impl FromStr for CatalogLanguage {
     }
 }
 
+/// How many votes a candidate needs, so that recommendations stay off the long tail.
+pub const MIN_CANDIDATE_VOTES: i64 = 100;
+
+/// How many of the best rated catalog items a candidate query scores. The
+/// `weighted_rating` index orders the pool, so the query reads no more rows.
+pub const CANDIDATE_POOL: i64 = 5_000;
+
 /// The title of an item that has no name in any language.
 const UNTITLED_PREFIX: &str = "TMDB";
 
@@ -94,6 +101,52 @@ pub struct CatalogShow {
     pub overview: Option<String>,
     pub number_of_seasons: Option<i32>,
     pub number_of_episodes: Option<i32>,
+}
+
+/// What one watched item says about taste: its genres, its language, and the
+/// collection or the production state that makes a follow-up possible.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TasteFacts {
+    pub genres: Vec<i64>,
+    pub language: Option<String>,
+    pub collection_id: Option<i64>,
+    pub in_production: bool,
+}
+
+/// A genre affinity vector, as the two arrays that a candidate query takes.
+/// The weights are a unit vector, so that a dot product is a cosine.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct GenreWeights {
+    pub ids: Vec<i64>,
+    pub weights: Vec<f64>,
+}
+
+impl GenreWeights {
+    pub fn is_empty(&self) -> bool {
+        self.ids.is_empty()
+    }
+}
+
+/// A catalog item that matches the genre affinity, with the parts of the score
+/// that only the catalog knows.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Candidate<T> {
+    pub item: T,
+    pub genres: Vec<i64>,
+    /// The cosine of the genre vector of the item and of the profile, from 0.0 to 1.0.
+    pub affinity: f64,
+    /// The Bayesian TMDB rating, on the scale of `vote_average`.
+    pub quality: f64,
+    pub language: Option<String>,
+}
+
+/// A movie of a collection that the library already holds a part of.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CollectionMovie {
+    pub movie: CatalogMovie,
+    pub collection_id: i64,
+    pub collection_name: Option<String>,
+    pub quality: f64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, ts_rs::TS)]
@@ -638,4 +691,298 @@ impl Catalog {
     }
 
     // endregion: episodes
+
+    // region: recommendations
+
+    /// The name of every genre that a movie uses, for the reason line of a
+    /// recommendation and for the affinity vector.
+    ///
+    /// The `kind` column of `genre` cannot answer this. TMDB gives the same id
+    /// to a movie genre and to a show genre (18 is Drama for both), and the
+    /// schema makes `genre.id` the only primary key, so one row holds one word
+    /// and the mirror decides which. The join table is the truth instead.
+    pub async fn movie_genre_names(&self) -> Result<HashMap<i64, String>> {
+        let rows = sqlx::query!(
+            "SELECT DISTINCT g.id, g.name_en, g.name_pt
+             FROM genre g JOIN tmdb_movie_genre mg ON mg.genre_id = g.id"
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|row| Some((row.id, self.pick(row.name_en, row.name_pt)?)))
+            .collect())
+    }
+
+    /// The name of every genre that a show uses. See `movie_genre_names`.
+    pub async fn show_genre_names(&self) -> Result<HashMap<i64, String>> {
+        let rows = sqlx::query!(
+            "SELECT DISTINCT g.id, g.name_en, g.name_pt
+             FROM genre g JOIN tmdb_show_genre sg ON sg.genre_id = g.id"
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|row| Some((row.id, self.pick(row.name_en, row.name_pt)?)))
+            .collect())
+    }
+
+    /// The taste facts of watched movies. One row per genre, grouped here.
+    pub async fn movie_taste_facts(&self, ids: &[i64]) -> Result<HashMap<i64, TasteFacts>> {
+        let mut facts: HashMap<i64, TasteFacts> = HashMap::new();
+        if ids.is_empty() {
+            return Ok(facts);
+        }
+        let rows = sqlx::query!(
+            r#"SELECT m.id AS "id!", m.original_language, m.collection_id, g.genre_id AS "genre_id?"
+               FROM tmdb_movie m LEFT JOIN tmdb_movie_genre g ON g.movie_id = m.id
+               WHERE m.id = ANY($1)"#,
+            ids
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        for row in rows {
+            let entry = facts.entry(row.id).or_default();
+            entry.language = entry.language.take().or(row.original_language);
+            entry.collection_id = entry.collection_id.or(row.collection_id);
+            if let Some(genre_id) = row.genre_id {
+                entry.genres.push(genre_id);
+            }
+        }
+        Ok(facts)
+    }
+
+    /// The taste facts of watched shows. `in_production` marks a show that can return.
+    pub async fn show_taste_facts(&self, ids: &[i64]) -> Result<HashMap<i64, TasteFacts>> {
+        let mut facts: HashMap<i64, TasteFacts> = HashMap::new();
+        if ids.is_empty() {
+            return Ok(facts);
+        }
+        let rows = sqlx::query!(
+            r#"SELECT s.id AS "id!", s.original_language, s.in_production, g.genre_id AS "genre_id?"
+               FROM tmdb_show s LEFT JOIN tmdb_show_genre g ON g.show_id = s.id
+               WHERE s.id = ANY($1)"#,
+            ids
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        for row in rows {
+            let entry = facts.entry(row.id).or_default();
+            entry.language = entry.language.take().or(row.original_language);
+            entry.in_production |= row.in_production.unwrap_or(false);
+            if let Some(genre_id) = row.genre_id {
+                entry.genres.push(genre_id);
+            }
+        }
+        Ok(facts)
+    }
+
+    /// Released movies that match the genre affinity, best first. `exclude` holds
+    /// the TMDB ids that the library already has.
+    pub async fn movie_candidates(
+        &self,
+        genres: &GenreWeights,
+        exclude: &[i64],
+        today: NaiveDate,
+        limit: i64,
+    ) -> Result<Vec<Candidate<CatalogMovie>>> {
+        if genres.is_empty() {
+            return Ok(Vec::new());
+        }
+        let today = today.format(DATE_FORMAT).to_string();
+        let rows = sqlx::query!(
+            r#"WITH affinity AS (
+                 SELECT * FROM unnest($1::bigint[], $2::float8[]) AS t (genre_id, weight)
+               ), pool AS (
+                 SELECT m.id FROM tmdb_movie m
+                 WHERE m.vote_count >= $3 AND NOT (m.id = ANY($4))
+                   AND m.release_date IS NOT NULL AND m.release_date <= $5
+                   AND m.adult IS NOT TRUE
+                 ORDER BY m.weighted_rating DESC NULLS LAST, m.id DESC
+                 LIMIT $6
+               ), scored AS (
+                 SELECT p.id,
+                        SUM(COALESCE(a.weight, 0.0)) / sqrt(COUNT(*)::float8) AS affinity,
+                        array_agg(g.genre_id) AS genres
+                 FROM pool p
+                 JOIN tmdb_movie_genre g ON g.movie_id = p.id
+                 LEFT JOIN affinity a ON a.genre_id = g.genre_id
+                 GROUP BY p.id
+               )
+               SELECT m.id, m.imdb_id, m.title_en, m.title_pt, m.original_title, m.release_date,
+                      m.runtime::int AS runtime, m.poster_path_en, m.poster_path_pt,
+                      m.overview_en, m.overview_pt, m.original_language,
+                      s.affinity AS "affinity!", s.genres AS "genres!: Vec<i64>",
+                      COALESCE(m.weighted_rating, 0.0) AS "quality!"
+               FROM scored s JOIN tmdb_movie m ON m.id = s.id
+               WHERE s.affinity > 0
+               ORDER BY s.affinity * COALESCE(m.weighted_rating, 0.0) DESC, m.id DESC
+               LIMIT $7"#,
+            &genres.ids,
+            &genres.weights,
+            MIN_CANDIDATE_VOTES,
+            exclude,
+            today,
+            CANDIDATE_POOL,
+            limit
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|row| Candidate {
+                genres: row.genres,
+                affinity: row.affinity,
+                quality: row.quality,
+                language: row.original_language,
+                item: self.movie(MovieRow {
+                    id: row.id,
+                    imdb_id: row.imdb_id,
+                    title_en: row.title_en,
+                    title_pt: row.title_pt,
+                    original_title: row.original_title,
+                    release_date: row.release_date,
+                    runtime: row.runtime,
+                    poster_path_en: row.poster_path_en,
+                    poster_path_pt: row.poster_path_pt,
+                    overview_en: row.overview_en,
+                    overview_pt: row.overview_pt,
+                }),
+            })
+            .collect())
+    }
+
+    /// Shows that match the genre affinity, best first.
+    pub async fn show_candidates(
+        &self,
+        genres: &GenreWeights,
+        exclude: &[i64],
+        today: NaiveDate,
+        limit: i64,
+    ) -> Result<Vec<Candidate<CatalogShow>>> {
+        if genres.is_empty() {
+            return Ok(Vec::new());
+        }
+        let today = today.format(DATE_FORMAT).to_string();
+        let rows = sqlx::query!(
+            r#"WITH affinity AS (
+                 SELECT * FROM unnest($1::bigint[], $2::float8[]) AS t (genre_id, weight)
+               ), pool AS (
+                 SELECT s.id FROM tmdb_show s
+                 WHERE s.vote_count >= $3 AND NOT (s.id = ANY($4))
+                   AND s.first_air_date IS NOT NULL AND s.first_air_date <= $5
+                 ORDER BY s.weighted_rating DESC NULLS LAST, s.id DESC
+                 LIMIT $6
+               ), scored AS (
+                 SELECT p.id,
+                        SUM(COALESCE(a.weight, 0.0)) / sqrt(COUNT(*)::float8) AS affinity,
+                        array_agg(g.genre_id) AS genres
+                 FROM pool p
+                 JOIN tmdb_show_genre g ON g.show_id = p.id
+                 LEFT JOIN affinity a ON a.genre_id = g.genre_id
+                 GROUP BY p.id
+               )
+               SELECT s2.id, s2.imdb_id, s2.tvdb_id, s2.name_en, s2.name_pt, s2.original_name,
+                      s2.first_air_date, s2.poster_path_en, s2.poster_path_pt,
+                      s2.overview_en, s2.overview_pt, s2.original_language,
+                      s2.number_of_seasons::int AS number_of_seasons,
+                      s2.number_of_episodes::int AS number_of_episodes,
+                      sc.affinity AS "affinity!", sc.genres AS "genres!: Vec<i64>",
+                      COALESCE(s2.weighted_rating, 0.0) AS "quality!"
+               FROM scored sc JOIN tmdb_show s2 ON s2.id = sc.id
+               WHERE sc.affinity > 0
+               ORDER BY sc.affinity * COALESCE(s2.weighted_rating, 0.0) DESC, s2.id DESC
+               LIMIT $7"#,
+            &genres.ids,
+            &genres.weights,
+            MIN_CANDIDATE_VOTES,
+            exclude,
+            today,
+            CANDIDATE_POOL,
+            limit
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|row| Candidate {
+                genres: row.genres,
+                affinity: row.affinity,
+                quality: row.quality,
+                language: row.original_language,
+                item: self.show(ShowRow {
+                    id: row.id,
+                    imdb_id: row.imdb_id,
+                    tvdb_id: row.tvdb_id,
+                    name_en: row.name_en,
+                    name_pt: row.name_pt,
+                    original_name: row.original_name,
+                    first_air_date: row.first_air_date,
+                    poster_path_en: row.poster_path_en,
+                    poster_path_pt: row.poster_path_pt,
+                    overview_en: row.overview_en,
+                    overview_pt: row.overview_pt,
+                    number_of_seasons: row.number_of_seasons,
+                    number_of_episodes: row.number_of_episodes,
+                }),
+            })
+            .collect())
+    }
+
+    /// Released movies of the given collections that the library does not have.
+    pub async fn collection_movies(
+        &self,
+        collection_ids: &[i64],
+        exclude: &[i64],
+        today: NaiveDate,
+        limit: i64,
+    ) -> Result<Vec<CollectionMovie>> {
+        if collection_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let today = today.format(DATE_FORMAT).to_string();
+        let rows = sqlx::query!(
+            r#"SELECT m.id, m.imdb_id, m.title_en, m.title_pt, m.original_title, m.release_date,
+                      m.runtime::int AS runtime, m.poster_path_en, m.poster_path_pt,
+                      m.overview_en, m.overview_pt,
+                      m.collection_id AS "collection_id!", c.name_en, c.name_pt,
+                      COALESCE(m.weighted_rating, 0.0) AS "quality!"
+               FROM tmdb_movie m JOIN collection c ON c.id = m.collection_id
+               WHERE m.collection_id = ANY($1) AND NOT (m.id = ANY($2))
+                 AND m.release_date IS NOT NULL AND m.release_date <= $3
+                 AND m.adult IS NOT TRUE
+               ORDER BY m.release_date, m.id
+               LIMIT $4"#,
+            collection_ids,
+            exclude,
+            today,
+            limit
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|row| CollectionMovie {
+                collection_id: row.collection_id,
+                collection_name: self.pick(row.name_en, row.name_pt),
+                quality: row.quality,
+                movie: self.movie(MovieRow {
+                    id: row.id,
+                    imdb_id: row.imdb_id,
+                    title_en: row.title_en,
+                    title_pt: row.title_pt,
+                    original_title: row.original_title,
+                    release_date: row.release_date,
+                    runtime: row.runtime,
+                    poster_path_en: row.poster_path_en,
+                    poster_path_pt: row.poster_path_pt,
+                    overview_en: row.overview_en,
+                    overview_pt: row.overview_pt,
+                }),
+            })
+            .collect())
+    }
+
+    // endregion: recommendations
 }

@@ -1,0 +1,182 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH affinity AS (\n                 SELECT * FROM unnest($1::bigint[], $2::float8[]) AS t (genre_id, weight)\n               ), pool AS (\n                 SELECT m.id FROM tmdb_movie m\n                 WHERE m.vote_count >= $3 AND NOT (m.id = ANY($4))\n                   AND m.release_date IS NOT NULL AND m.release_date <= $5\n                   AND m.adult IS NOT TRUE\n                 ORDER BY m.weighted_rating DESC NULLS LAST, m.id DESC\n                 LIMIT $6\n               ), scored AS (\n                 SELECT p.id,\n                        SUM(COALESCE(a.weight, 0.0)) / sqrt(COUNT(*)::float8) AS affinity,\n                        array_agg(g.genre_id) AS genres\n                 FROM pool p\n                 JOIN tmdb_movie_genre g ON g.movie_id = p.id\n                 LEFT JOIN affinity a ON a.genre_id = g.genre_id\n                 GROUP BY p.id\n               )\n               SELECT m.id, m.imdb_id, m.title_en, m.title_pt, m.original_title, m.release_date,\n                      m.runtime::int AS runtime, m.poster_path_en, m.poster_path_pt,\n                      m.overview_en, m.overview_pt, m.original_language,\n                      s.affinity AS \"affinity!\", s.genres AS \"genres!: Vec<i64>\",\n                      COALESCE(m.weighted_rating, 0.0) AS \"quality!\"\n               FROM scored s JOIN tmdb_movie m ON m.id = s.id\n               WHERE s.affinity > 0\n               ORDER BY s.affinity * COALESCE(m.weighted_rating, 0.0) DESC, m.id DESC\n               LIMIT $7",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "tmdb_movie",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "imdb_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_movie",
+            "name": "imdb_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "title_en",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_movie",
+            "name": "title_en"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "title_pt",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_movie",
+            "name": "title_pt"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "original_title",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_movie",
+            "name": "original_title"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "release_date",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_movie",
+            "name": "release_date"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "runtime",
+        "type_info": "Int4",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 7,
+        "name": "poster_path_en",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_movie",
+            "name": "poster_path_en"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "poster_path_pt",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_movie",
+            "name": "poster_path_pt"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "overview_en",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_movie",
+            "name": "overview_en"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "overview_pt",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_movie",
+            "name": "overview_pt"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "original_language",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_movie",
+            "name": "original_language"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "affinity!",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 13,
+        "name": "genres!: Vec<i64>",
+        "type_info": "Int8Array",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 14,
+        "name": "quality!",
+        "type_info": "Float8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8Array",
+        "Float8Array",
+        "Int8",
+        "Int8Array",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      null,
+      true,
+      true,
+      true,
+      true,
+      true,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "447d17a114c97e753b25cd0e6bdd370796fb9868beba6e7487c14f517ab8926a"
+}

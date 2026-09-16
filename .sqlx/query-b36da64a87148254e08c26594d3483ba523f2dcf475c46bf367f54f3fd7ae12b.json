@@ -1,0 +1,201 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH affinity AS (\n                 SELECT * FROM unnest($1::bigint[], $2::float8[]) AS t (genre_id, weight)\n               ), pool AS (\n                 SELECT s.id FROM tmdb_show s\n                 WHERE s.vote_count >= $3 AND NOT (s.id = ANY($4))\n                   AND s.first_air_date IS NOT NULL AND s.first_air_date <= $5\n                 ORDER BY s.weighted_rating DESC NULLS LAST, s.id DESC\n                 LIMIT $6\n               ), scored AS (\n                 SELECT p.id,\n                        SUM(COALESCE(a.weight, 0.0)) / sqrt(COUNT(*)::float8) AS affinity,\n                        array_agg(g.genre_id) AS genres\n                 FROM pool p\n                 JOIN tmdb_show_genre g ON g.show_id = p.id\n                 LEFT JOIN affinity a ON a.genre_id = g.genre_id\n                 GROUP BY p.id\n               )\n               SELECT s2.id, s2.imdb_id, s2.tvdb_id, s2.name_en, s2.name_pt, s2.original_name,\n                      s2.first_air_date, s2.poster_path_en, s2.poster_path_pt,\n                      s2.overview_en, s2.overview_pt, s2.original_language,\n                      s2.number_of_seasons::int AS number_of_seasons,\n                      s2.number_of_episodes::int AS number_of_episodes,\n                      sc.affinity AS \"affinity!\", sc.genres AS \"genres!: Vec<i64>\",\n                      COALESCE(s2.weighted_rating, 0.0) AS \"quality!\"\n               FROM scored sc JOIN tmdb_show s2 ON s2.id = sc.id\n               WHERE sc.affinity > 0\n               ORDER BY sc.affinity * COALESCE(s2.weighted_rating, 0.0) DESC, s2.id DESC\n               LIMIT $7",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "tmdb_show",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "imdb_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_show",
+            "name": "imdb_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "tvdb_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "tmdb_show",
+            "name": "tvdb_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "name_en",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_show",
+            "name": "name_en"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "name_pt",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_show",
+            "name": "name_pt"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "original_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_show",
+            "name": "original_name"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "first_air_date",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_show",
+            "name": "first_air_date"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "poster_path_en",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_show",
+            "name": "poster_path_en"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "poster_path_pt",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_show",
+            "name": "poster_path_pt"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "overview_en",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_show",
+            "name": "overview_en"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "overview_pt",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_show",
+            "name": "overview_pt"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "original_language",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_show",
+            "name": "original_language"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "number_of_seasons",
+        "type_info": "Int4",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 13,
+        "name": "number_of_episodes",
+        "type_info": "Int4",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 14,
+        "name": "affinity!",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 15,
+        "name": "genres!: Vec<i64>",
+        "type_info": "Int8Array",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 16,
+        "name": "quality!",
+        "type_info": "Float8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8Array",
+        "Float8Array",
+        "Int8",
+        "Int8Array",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "b36da64a87148254e08c26594d3483ba523f2dcf475c46bf367f54f3fd7ae12b"
+}

@@ -12,13 +12,10 @@ use uuid::Uuid;
 use watchkeep_catalog::{Catalog, CatalogEpisode};
 use watchkeep_storage::clock::{SharedClock, date_of};
 use watchkeep_storage::lists::{SortOrder, WatchFilter};
-use watchkeep_storage::model::{PlayState, millis};
+use watchkeep_storage::model::{PlayState, SPECIALS_SEASON, millis};
 use watchkeep_storage::queries::{EpisodeView, Queries, ShowView};
 
 use crate::scrobble::runtime_to_duration;
-
-/// Specials live in season 0. They do not count as episodes to watch.
-pub const SPECIALS_SEASON: i32 = 0;
 
 #[derive(Clone, Debug, Serialize, ts_rs::TS)]
 #[ts(export)]

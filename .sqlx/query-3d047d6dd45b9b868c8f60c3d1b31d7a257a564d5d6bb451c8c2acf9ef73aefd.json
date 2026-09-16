@@ -1,0 +1,189 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT m.id, m.imdb_id, m.title_en, m.title_pt, m.original_title, m.release_date,\n                      m.runtime::int AS runtime, m.poster_path_en, m.poster_path_pt,\n                      m.overview_en, m.overview_pt,\n                      m.collection_id AS \"collection_id!\", c.name_en, c.name_pt,\n                      COALESCE(m.weighted_rating, 0.0) AS \"quality!\"\n               FROM tmdb_movie m JOIN collection c ON c.id = m.collection_id\n               WHERE m.collection_id = ANY($1) AND NOT (m.id = ANY($2))\n                 AND m.release_date IS NOT NULL AND m.release_date <= $3\n                 AND m.adult IS NOT TRUE\n               ORDER BY m.release_date, m.id\n               LIMIT $4",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "tmdb_movie",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "imdb_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_movie",
+            "name": "imdb_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "title_en",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_movie",
+            "name": "title_en"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "title_pt",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_movie",
+            "name": "title_pt"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "original_title",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_movie",
+            "name": "original_title"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "release_date",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_movie",
+            "name": "release_date"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "runtime",
+        "type_info": "Int4",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 7,
+        "name": "poster_path_en",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_movie",
+            "name": "poster_path_en"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "poster_path_pt",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_movie",
+            "name": "poster_path_pt"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "overview_en",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_movie",
+            "name": "overview_en"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "overview_pt",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_movie",
+            "name": "overview_pt"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "collection_id!",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "tmdb_movie",
+            "name": "collection_id"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "name_en",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "collection",
+            "name": "name_en"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "name_pt",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "collection",
+            "name": "name_pt"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "quality!",
+        "type_info": "Float8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8Array",
+        "Int8Array",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      null,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      null
+    ]
+  },
+  "hash": "3d047d6dd45b9b868c8f60c3d1b31d7a257a564d5d6bb451c8c2acf9ef73aefd"
+}

@@ -1,0 +1,101 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT m.id, m.kind AS \"kind: MediaKind\", m.tmdb_id AS \"tmdb_id!\", m.title,\n                      COUNT(p.id) AS \"play_count!\",\n                      LEAST(COUNT(p.id), 1) AS \"watched_count!\",\n                      1::bigint AS \"episode_count!\",\n                      MAX(p.watched_at) AS \"last_watched_at?\",\n                      (SELECT r.rating FROM ratings r WHERE r.target_kind = $3 AND r.target_id = m.id) AS \"rating?\"\n               FROM media m\n               LEFT JOIN plays p ON p.target_kind = $2 AND p.target_id = m.id\n               WHERE m.kind = $1 AND m.tmdb_id IS NOT NULL\n               GROUP BY m.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "media",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "kind: MediaKind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "media",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "tmdb_id!",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "media",
+            "name": "tmdb_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "title",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "media",
+            "name": "title"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "play_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "watched_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 6,
+        "name": "episode_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 7,
+        "name": "last_watched_at?",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 8,
+        "name": "rating?",
+        "type_info": "Float8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "e8f8a02c827fab48cf472c9a0445fc0b7b676edf10699d95ea2a9f78cb988b05"
+}

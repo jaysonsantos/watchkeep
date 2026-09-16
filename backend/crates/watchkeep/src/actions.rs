@@ -10,11 +10,12 @@ use watchkeep_catalog::Catalog;
 use watchkeep_storage::clock::{SharedClock, date_of};
 use watchkeep_storage::library::{Library, PlayInput};
 use watchkeep_storage::model::{
-    EpisodeInput, ExternalIds, MediaKind, MediaRow, MovieRef, PlaySource, ShowRef, TargetKind,
+    EpisodeInput, ExternalIds, MediaKind, MediaRow, MovieRef, PlaySource, SPECIALS_SEASON, ShowRef,
+    TargetKind,
 };
 
 use crate::scrobble::{enrich_movie, enrich_show, runtime_to_duration};
-use crate::views::{SPECIALS_SEASON, has_aired};
+use crate::views::has_aired;
 
 #[derive(Clone, Debug)]
 pub struct AddMediaInput {

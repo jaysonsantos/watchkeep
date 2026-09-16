@@ -12,7 +12,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::lists::{SortFlags, SortOrder, WatchFilter};
-use crate::model::{MediaKind, PlayState, RatingKind, TargetKind};
+use crate::model::{MediaKind, PlayState, RatingKind, SPECIALS_SEASON, TargetKind};
 
 #[derive(Clone, Debug, Serialize, ts_rs::TS)]
 #[ts(export)]
@@ -144,6 +144,33 @@ pub struct Stats {
     pub episodes: i64,
     pub episodes_watched: i64,
     pub plays: i64,
+}
+
+/// One library item with a TMDB id and the signals that weigh it in a taste
+/// profile. An item with no play still appears, so that the recommendations
+/// leave out what the library already holds.
+///
+/// Every count of a show leaves the specials of season 0 out, because the
+/// catalog total that the profile compares them with leaves them out too. A
+/// watched special would otherwise stand for an episode that nobody watched.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TasteItem {
+    pub id: Uuid,
+    pub kind: MediaKind,
+    pub tmdb_id: i64,
+    pub title: String,
+    /// Plays of the movie, or plays of the regular episodes of the show.
+    pub play_count: i64,
+    /// 1 for a watched movie, or the regular episodes of the show with a play.
+    pub watched_count: i64,
+    /// 1 for a movie, or the regular episodes of the show with a local row.
+    pub episode_count: i64,
+    /// The last play of the movie, or of a regular episode of the show.
+    pub last_watched_at: Option<DateTime<Utc>>,
+    /// The rating of the item. A show without a rating of its own takes the
+    /// average of the ratings of its episodes, because Plex and Trakt rate
+    /// episodes far more often than shows.
+    pub rating: Option<f64>,
 }
 
 #[derive(Clone, Debug, Serialize, ts_rs::TS)]
@@ -494,4 +521,66 @@ impl Queries {
     }
 
     // endregion: watchlist, lookups, and the webhook log
+
+    // region: taste
+
+    /// Every movie and show with a TMDB id, with its watch signals. The
+    /// recommender turns these into a genre affinity and an exclusion list.
+    pub async fn taste(&self) -> Result<Vec<TasteItem>> {
+        let mut items = self.movie_taste().await?;
+        items.extend(self.show_taste().await?);
+        Ok(items)
+    }
+
+    async fn movie_taste(&self) -> Result<Vec<TasteItem>> {
+        Ok(sqlx::query_as!(
+            TasteItem,
+            r#"SELECT m.id, m.kind AS "kind: MediaKind", m.tmdb_id AS "tmdb_id!", m.title,
+                      COUNT(p.id) AS "play_count!",
+                      LEAST(COUNT(p.id), 1) AS "watched_count!",
+                      1::bigint AS "episode_count!",
+                      MAX(p.watched_at) AS "last_watched_at?",
+                      (SELECT r.rating FROM ratings r WHERE r.target_kind = $3 AND r.target_id = m.id) AS "rating?"
+               FROM media m
+               LEFT JOIN plays p ON p.target_kind = $2 AND p.target_id = m.id
+               WHERE m.kind = $1 AND m.tmdb_id IS NOT NULL
+               GROUP BY m.id"#,
+            MediaKind::Movie.as_str(),
+            TargetKind::Movie.as_str(),
+            RatingKind::Movie.as_str()
+        )
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    async fn show_taste(&self) -> Result<Vec<TasteItem>> {
+        Ok(sqlx::query_as!(
+            TasteItem,
+            r#"SELECT s.id, s.kind AS "kind: MediaKind", s.tmdb_id AS "tmdb_id!", s.title,
+                      (SELECT COUNT(*) FROM plays p JOIN episodes e2 ON e2.id = p.target_id
+                         WHERE p.target_kind = $2 AND e2.show_id = s.id AND e2.season <> $5) AS "play_count!",
+                      COALESCE(SUM(CASE WHEN EXISTS (SELECT 1 FROM plays p WHERE p.target_kind = $2 AND p.target_id = e.id) THEN 1 ELSE 0 END), 0)::bigint AS "watched_count!",
+                      COUNT(e.id) AS "episode_count!",
+                      (SELECT MAX(p.watched_at) FROM plays p JOIN episodes e2 ON e2.id = p.target_id
+                         WHERE p.target_kind = $2 AND e2.show_id = s.id AND e2.season <> $5) AS "last_watched_at?",
+                      COALESCE(
+                        (SELECT r.rating FROM ratings r WHERE r.target_kind = $3 AND r.target_id = s.id),
+                        (SELECT AVG(r.rating) FROM ratings r JOIN episodes e2 ON e2.id = r.target_id
+                           WHERE r.target_kind = $4 AND e2.show_id = s.id)
+                      ) AS "rating?"
+               FROM media s
+               LEFT JOIN episodes e ON e.show_id = s.id AND e.season <> $5
+               WHERE s.kind = $1 AND s.tmdb_id IS NOT NULL
+               GROUP BY s.id"#,
+            MediaKind::Show.as_str(),
+            TargetKind::Episode.as_str(),
+            RatingKind::Show.as_str(),
+            RatingKind::Episode.as_str(),
+            SPECIALS_SEASON
+        )
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    // endregion: taste
 }

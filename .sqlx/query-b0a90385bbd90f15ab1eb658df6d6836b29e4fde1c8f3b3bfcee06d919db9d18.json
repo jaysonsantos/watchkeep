@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT s.id AS \"id!\", s.original_language, s.in_production, g.genre_id AS \"genre_id?\"\n               FROM tmdb_show s LEFT JOIN tmdb_show_genre g ON g.show_id = s.id\n               WHERE s.id = ANY($1)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "tmdb_show",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "original_language",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_show",
+            "name": "original_language"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "in_production",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "tmdb_show",
+            "name": "in_production"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "genre_id?",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "tmdb_show_genre",
+            "name": "genre_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8Array"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "b0a90385bbd90f15ab1eb658df6d6836b29e4fde1c8f3b3bfcee06d919db9d18"
+}
