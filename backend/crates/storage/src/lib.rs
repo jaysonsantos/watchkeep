@@ -89,3 +89,4 @@ pub mod library;
 pub mod lists;
 pub mod model;
 pub mod queries;
+pub mod statistics;

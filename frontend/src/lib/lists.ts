@@ -22,6 +22,7 @@ export const QUERY = {
   page: "page",
   limit: "limit",
   offset: "offset",
+  timezone: "tz",
 } as const;
 
 export const LIST_PAGE_SIZE = 60;

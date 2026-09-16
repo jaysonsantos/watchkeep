@@ -18,9 +18,10 @@ the web UI.
 - Optional Plex library sync that imports items, watch counts, and resume positions.
 - Import of a Trakt data export: history, ratings, playback positions, watchlist, and hidden shows.
 - Watchlist for movies and shows.
+- Statistics page: watch time, plays per month, per weekday, and per hour, day streaks, top shows, and top movies.
 - Add page: search the catalog by title and add a movie or show to the library or the watchlist.
 - Manual actions: mark a movie, an episode, or a whole show watched or unwatched.
-- Web UI with dashboard, movies, shows, watchlist, history, add page, and a webhook log. The UI needs JavaScript.
+- Web UI with dashboard, movies, shows, watchlist, history, statistics, add page, and a webhook log. The UI needs JavaScript.
 - PostgreSQL storage through `sqlx`. The compiler checks every query against the schema. One binary, no runtime dependencies.
 
 ## Architecture
@@ -205,6 +206,7 @@ UUID returns `400 Bad Request`.
 |---|---|---|
 | `GET` | `/api/config` | Image base URL, and whether the Plex sync and the catalog are configured. |
 | `GET` | `/api/stats` | Counts of movies, shows, episodes, and plays. |
+| `GET` | `/api/statistics?tz=Europe/Berlin` | Watch time, calendar buckets, streaks, and top lists. `tz` is an IANA name; an unknown name reads as UTC. |
 | `GET` | `/api/progress` | Items with a saved playback position. |
 | `DELETE` | `/api/progress/:kind/:id` | Remove the playback position of a `movie` or an `episode`. |
 | `GET` | `/api/history?limit=50&offset=0` | Plays, newest first. |

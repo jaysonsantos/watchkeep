@@ -84,6 +84,14 @@ impl HistoryQuery {
     }
 }
 
+/// `/api/statistics`. `tz` is an IANA time zone name, for example `Europe/Berlin`.
+/// An empty or unknown name falls back to UTC.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct StatisticsQuery {
+    pub tz: String,
+}
+
 /// `/api/search`.
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
