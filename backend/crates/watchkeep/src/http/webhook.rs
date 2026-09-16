@@ -12,6 +12,7 @@ use axum::{Form, Json, Router};
 use eyre::{Result, eyre};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use tracing::{Span, field, instrument};
 use watchkeep_storage::library::WebhookLog;
 
 use super::{ApiResult, ErrorResponse, bad_request, header};
@@ -27,6 +28,18 @@ const MAX_LOGGED_PAYLOAD: usize = 64 * 1024;
 
 const MULTIPART: &str = "multipart/form-data";
 const FORM_URLENCODED: &str = "application/x-www-form-urlencoded";
+
+/// The outcome label of an event that Watchkeep does not track.
+const OUTCOME_IGNORED: &str = "ignored";
+
+/// The outcome label of an event without a valid token or without a payload.
+const OUTCOME_REJECTED: &str = "rejected";
+
+/// The event label of a call that carried no Plex event name.
+const EVENT_NONE: &str = "none";
+
+/// The outcome label of a call that ended in an internal error.
+const OUTCOME_FAILED: &str = "failed";
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
@@ -108,11 +121,30 @@ fn truncate(text: &str) -> String {
     text[..end].to_owned()
 }
 
+/// The webhook is the entry point of the scrobbler. The span names the event
+/// and the outcome, and one counter counts the events by both.
+#[instrument(
+    skip_all,
+    // The account of the event is the name of a person, so it stays off the
+    // span. The webhook log keeps it for the UI.
+    fields(plex.event = field::Empty, webhook.outcome = field::Empty)
+)]
 async fn plex(
     State(ctx): State<SharedContext>,
     Query(query): Query<WebhookQuery>,
     request: Request,
 ) -> ApiResult {
+    let result = handle(ctx, query, request).await;
+    // A call that fails counts too, else the counter hides exactly the events
+    // that Watchkeep lost.
+    if result.is_err() {
+        count_event(None, OUTCOME_FAILED);
+    }
+    result
+}
+
+/// The work of the webhook. `plex` counts the outcome around it.
+async fn handle(ctx: SharedContext, query: WebhookQuery, request: Request) -> ApiResult {
     let expected = &ctx.config.webhook_token;
     if !expected.is_empty() {
         let given = query
@@ -126,6 +158,7 @@ async fn plex(
             })
             .unwrap_or_default();
         if given != *expected {
+            count_event(None, OUTCOME_REJECTED);
             return Ok((
                 StatusCode::UNAUTHORIZED,
                 Json(ErrorResponse {
@@ -137,9 +170,11 @@ async fn plex(
     }
 
     let Some(text) = read_payload(request).await? else {
+        count_event(None, OUTCOME_REJECTED);
         return Ok(bad_request("missing payload"));
     };
     let Ok(raw) = serde_json::from_str::<Value>(&text) else {
+        count_event(None, OUTCOME_REJECTED);
         return Ok(bad_request("payload is not JSON"));
     };
 
@@ -163,6 +198,7 @@ async fn plex(
                     payload: logged,
                 })
                 .await?;
+            count_event(None, OUTCOME_IGNORED);
             return Ok(Json(IgnoredResponse {
                 ok: true,
                 ignored: reason,
@@ -172,7 +208,10 @@ async fn plex(
         ParseResult::Event(event) => event,
     };
 
+    let span = Span::current();
+    span.record("plex.event", event.event.as_str());
     let result = ctx.scrobbler.apply(&event).await?;
+    span.record("webhook.outcome", result.action.as_str());
     library
         .log_webhook(WebhookLog {
             event: Some(event.event.to_string()),
@@ -187,6 +226,7 @@ async fn plex(
     library
         .prune_webhook_log(ctx.config.webhook_retention)
         .await?;
+    count_event(Some(event.event.as_str()), result.action.as_str());
     tracing::info!(
         "{} {} \"{}\"{}",
         event.event,
@@ -198,4 +238,14 @@ async fn plex(
             .unwrap_or_default()
     );
     Ok(Json(WebhookResponse { ok: true, result }).into_response())
+}
+
+/// One point per webhook call. The event name and the outcome are words of an
+/// enum, so the cardinality stays small.
+fn count_event(event: Option<&str>, outcome: &str) {
+    tracing::info!(
+        monotonic_counter.watchkeep_webhook_events_total = 1_u64,
+        plex_event = event.unwrap_or(EVENT_NONE),
+        webhook_outcome = outcome,
+    );
 }

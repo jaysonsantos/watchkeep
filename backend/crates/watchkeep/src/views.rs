@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 use chrono::{DateTime, NaiveDate, Utc};
 use eyre::Result;
 use serde::Serialize;
+use tracing::instrument;
 use uuid::Uuid;
 use watchkeep_catalog::{Catalog, CatalogEpisode};
 use watchkeep_storage::clock::{SharedClock, date_of};
@@ -79,6 +80,8 @@ impl Views {
     }
 
     /// Filters in memory, because the watched state needs the catalog episode counts.
+    // The search text never goes on the span: it is what a person typed.
+    #[instrument(skip_all, err, fields(list.filter = filter.as_str(), list.sort = sort.as_str()))]
     pub async fn shows(
         &self,
         filter: WatchFilter,
@@ -122,6 +125,7 @@ impl Views {
         })
     }
 
+    #[instrument(skip_all, err, fields(show.id = %id))]
     pub async fn show(&self, id: Uuid) -> Result<Option<ShowDetail>> {
         let Some(show) = self.queries.show(id).await? else {
             return Ok(None);

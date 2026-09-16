@@ -9,9 +9,11 @@ use eyre::Result;
 use sqlx::AssertSqlSafe;
 use uuid::Uuid;
 use watchkeep_storage::db::{MIGRATOR, create_pool, migrate};
+use watchkeep_telemetry::testing::init_goodies;
 
 #[tokio::test]
 async fn applies_the_schema_and_gives_new_rows_a_uuid_v7_from_the_server() -> Result<()> {
+    let _guard = init_goodies();
     let name = unique_name();
     admin(format!("CREATE DATABASE {name}")).await?;
     let pool = create_pool(&url_for(&name), 2).await?;

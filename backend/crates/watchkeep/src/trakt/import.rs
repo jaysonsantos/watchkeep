@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::{Cursor, Read};
 use std::path::Path;
 use std::sync::LazyLock;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
 use eyre::{Result, WrapErr};
@@ -18,6 +18,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::PgPool;
+use tracing::{Span, field, instrument};
 use uuid::Uuid;
 use watchkeep_catalog::Catalog;
 use watchkeep_storage::bulk::{
@@ -33,12 +34,17 @@ use watchkeep_storage::model::{
 
 use crate::plex::payload::PLEX_GUID_SCHEME;
 use crate::scrobble::{FULL_PERCENT, episode_with_catalog, movie_with_catalog, show_with_catalog};
+use crate::telemetry::milliseconds;
 
 /// The `player` of a playback position that came from Trakt.
 const TRAKT_PLAYER: &str = "Trakt";
 
 /// The file of the export that lists the endpoints Trakt failed to export.
 const ERRORS_FILE: &str = "_errors.json";
+
+/// The `import_status` label of the run metrics.
+const IMPORT_SUCCESS: &str = "success";
+const IMPORT_ERROR: &str = "error";
 
 const JSON_EXTENSION: &str = ".json";
 
@@ -496,7 +502,40 @@ fn time_of(text: Option<&str>) -> Option<DateTime<Utc>> {
     non_empty(text).and_then(parse_iso)
 }
 
+/// Imports one Trakt export. The span holds what the import wrote, and the
+/// metrics hold the time and the number of runs.
+#[instrument(
+    skip_all,
+    err,
+    fields(
+        trakt.dry_run = options.dry_run,
+        trakt.plays = field::Empty,
+        trakt.ratings = field::Empty,
+    )
+)]
 pub async fn import_trakt_export(
+    pool: &PgPool,
+    catalog: Option<&Catalog>,
+    zip_path: &Path,
+    options: ImportOptions,
+) -> Result<TraktImportReport> {
+    // The metrics belong to the run, not to a successful run: an import that
+    // fails every time must look different from an import that never runs.
+    let started = Instant::now();
+    let result = run_import(pool, catalog, zip_path, options).await;
+    tracing::info!(
+        monotonic_counter.watchkeep_trakt_imports_total = 1_u64,
+        histogram.watchkeep_trakt_import_duration_ms = milliseconds(started.elapsed()),
+        import_status = if result.is_ok() {
+            IMPORT_SUCCESS
+        } else {
+            IMPORT_ERROR
+        },
+    );
+    result
+}
+
+async fn run_import(
     pool: &PgPool,
     catalog: Option<&Catalog>,
     zip_path: &Path,
@@ -792,5 +831,8 @@ pub async fn import_trakt_export(
         report.watchlist,
         report.hidden
     );
+    let span = Span::current();
+    span.record("trakt.plays", report.plays);
+    span.record("trakt.ratings", report.ratings);
     Ok(report)
 }

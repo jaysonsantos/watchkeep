@@ -8,6 +8,7 @@ use std::time::Duration;
 use eyre::Result;
 use serde::Serialize;
 use sqlx::{PgConnection, PgPool};
+use tracing::{Span, field, instrument};
 use uuid::Uuid;
 use watchkeep_catalog::{Catalog, CatalogEpisode, CatalogMovie, CatalogShow};
 use watchkeep_storage::clock::SharedClock;
@@ -27,6 +28,10 @@ const SECONDS_PER_MINUTE: u64 = 60;
 const PERCENT_DECIMALS: f64 = 10.0;
 
 pub const FULL_PERCENT: f64 = 100.0;
+
+/// The `scrobble_action` label of an event that the scrobbler could not apply.
+/// It is not a `ScrobbleAction`, because no row holds it.
+const SCROBBLE_ERROR: &str = "error";
 
 text_enum! {
     /// What the scrobbler did with an event. The text is the `outcome` of the webhook log.
@@ -318,7 +323,40 @@ impl Scrobbler {
         }
     }
 
+    /// Applies one Plex event. The span carries what the scrobbler decided, and
+    /// the counter gets one point per event.
+    #[instrument(
+        skip_all,
+        err,
+        fields(
+            plex.event = event.event.as_str(),
+            target.kind = field::Empty,
+            scrobble.action = field::Empty,
+        )
+    )]
     pub async fn apply(&self, event: &PlexEvent) -> Result<ScrobbleResult> {
+        let result = self.apply_event(event).await;
+        let span = Span::current();
+        // A failed event counts too, else the counter hides exactly the events
+        // that need attention.
+        let action = match &result {
+            Ok(applied) => {
+                span.record("target.kind", applied.target_kind.as_str());
+                span.record("scrobble.action", applied.action.as_str());
+                applied.action.as_str()
+            }
+            Err(_) => SCROBBLE_ERROR,
+        };
+        // Both labels are words of an enum, so the cardinality stays small.
+        tracing::info!(
+            monotonic_counter.watchkeep_scrobble_events_total = 1_u64,
+            plex_event = event.event.as_str(),
+            scrobble_action = action,
+        );
+        result
+    }
+
+    async fn apply_event(&self, event: &PlexEvent) -> Result<ScrobbleResult> {
         if !account_allowed(&self.config, event) {
             let kind = event.media.target_kind();
             return Ok(ScrobbleResult {

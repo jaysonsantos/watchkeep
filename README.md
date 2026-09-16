@@ -181,7 +181,7 @@ Every setting is a flag and an environment variable. `--port 9000` and
 | `WATCHKEEP_STATIC_DIR` | `frontend/build` | Directory with the built web UI. |
 | `WATCHKEEP_HTTP_ORIGIN` | empty | Public URL, for example `https://watchkeep.example.com`. Set it behind a reverse proxy that changes the `Host` header. |
 | `WATCHKEEP_HTTP_HOST_HEADER` | `host` | Header that carries the host of the request, for example `x-forwarded-host`. |
-| `RUST_LOG` | `info` | Log filter of the server. |
+| `RUST_LOG` | `info` | Log filter of the server. See [Observability](#observability). |
 
 The UI buttons call the JSON API with JSON bodies. Watchkeep rejects a form
 post (`application/x-www-form-urlencoded`, `multipart/form-data`, or
@@ -191,6 +191,58 @@ the browser is not the host of the request. A reverse proxy that changes the
 forbidden". In that case, set `WATCHKEEP_HTTP_ORIGIN`, or set
 `WATCHKEEP_HTTP_HOST_HEADER=x-forwarded-host`. The webhook is exempt, because
 Plex posts forms without an `Origin` header.
+
+## Observability
+
+Watchkeep exports traces and metrics with OpenTelemetry over OTLP/HTTP, and it
+writes logs to stdout. The SDK sends to `http://127.0.0.1:4318` when no
+variable points somewhere else. No collector address is in the code. Without a
+collector the exporters give up after two seconds, and the server continues.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `OTEL_SERVICE_NAME` | `watchkeep` | Name of this process in the collector. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://127.0.0.1:4318` | Address of the collector. |
+| `OTEL_EXPORTER_OTLP_HEADERS` | empty | Extra headers, for example `Authorization=<token>`. Keep the token in a secret, not in a unit file or a manifest. |
+| `RUST_LOG` | `info` | Filter of the log lines and of the exported spans. |
+| `CONSOLE_SUBSCRIBER` | empty | A port. When it is set, tokio-console starts. |
+| `CONSOLE_SUBSCRIBER_ADDRESS` | `127.0.0.1` | Bind address of tokio-console. |
+
+Docker Compose passes `OTEL_EXPORTER_OTLP_ENDPOINT` and
+`OTEL_EXPORTER_OTLP_HEADERS` to the container when `.env` sets them. The
+address `127.0.0.1` is the container itself, so a collector on another host
+needs the endpoint variable.
+
+A span never carries a query string, because the webhook URL carries the token.
+The span of a request holds the path only.
+
+Without a collector, the SDK writes one error per failed export. To silence
+it, set `RUST_LOG=info,opentelemetry_sdk=off,opentelemetry-otlp=off`.
+
+Every span and every metric carries the resource of the process: the service
+name and `service.version` from the manifest.
+
+The server makes one `server` span for each HTTP request. The span takes its
+parent from the `traceparent` header of the caller, and it carries the method,
+the matched route, the URL, and the status code. Each service call below it is
+one span.
+
+The Plex client makes one `client` span per call and sends the trace context
+with it, so a Plex side with tracing joins the same trace. The database driver
+reports each statement as an event on the target `sqlx::query`: the summary,
+the SQL, the row counts, and the time. The level is `debug`, and `warn` for a
+statement that takes more than one second. Use `RUST_LOG=info,sqlx::query=debug`
+to see every query of a request in its span.
+
+| Instrument | Unit | Labels |
+|---|---|---|
+| `watchkeep_http_requests_total` | requests | `http.method`, `http.route`, `status`, `otel.kind` |
+| `watchkeep_http_request_duration_ms` | ms | the same |
+| `watchkeep_http_active_requests` | requests | `http.method`, `http.route`, `otel.kind` |
+| `watchkeep_webhook_events_total` | events | `plex_event`, `webhook_outcome` |
+| `watchkeep_scrobble_events_total` | events | `plex_event`, `scrobble_action` (`error` when the event failed) |
+| `watchkeep_plex_sync_runs_total`, `watchkeep_plex_sync_duration_ms` | runs, ms | `sync_status` |
+| `watchkeep_trakt_imports_total`, `watchkeep_trakt_import_duration_ms` | runs, ms | `import_status` |
 
 ## Security
 

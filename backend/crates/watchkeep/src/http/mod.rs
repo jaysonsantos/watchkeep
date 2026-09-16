@@ -8,6 +8,7 @@ use axum::Json;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
+use watchkeep_telemetry::report_error;
 
 /// Response headers that Watchkeep sets.
 pub mod header {
@@ -17,7 +18,8 @@ pub mod header {
     pub const WEBHOOK_TOKEN: &str = "x-webhook-token";
 }
 
-/// Any failure inside a handler. Logs the report and answers `500 {"error": ...}`.
+/// Any failure inside a handler. Reports the error on the span of the request
+/// and answers `500 {"error": ...}`.
 pub struct AppError(pub eyre::Report);
 
 impl<E: Into<eyre::Report>> From<E> for AppError {
@@ -28,7 +30,7 @@ impl<E: Into<eyre::Report>> From<E> for AppError {
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        tracing::error!("error: {:?}", self.0);
+        report_error!("the handler failed", self.0);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {

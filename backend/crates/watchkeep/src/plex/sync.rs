@@ -4,13 +4,16 @@
 
 use std::collections::HashMap;
 use std::ops::DerefMut;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
 use eyre::{Result, bail};
+use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
+use reqwest_tracing::{SpanBackendWithUrl, TracingMiddleware};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use sqlx::{PgConnection, PgPool};
+use tracing::{Span, field, instrument};
 use uuid::Uuid;
 use watchkeep_catalog::Catalog;
 use watchkeep_storage::clock::SharedClock;
@@ -22,6 +25,7 @@ use watchkeep_storage::model::{
 
 use crate::plex::payload::{PlexMetadata, parse_ids};
 use crate::scrobble::{enrich_episode, enrich_movie};
+use crate::telemetry::milliseconds;
 
 /// Headers of the Plex Media Server API.
 mod header {
@@ -33,6 +37,10 @@ mod header {
 }
 
 const SECTIONS_PATH: &str = "/library/sections";
+
+/// The `sync_status` label of the run metrics.
+const SYNC_SUCCESS: &str = "success";
+const SYNC_ERROR: &str = "error";
 
 /// Items per page of the library API.
 pub const DEFAULT_PAGE_SIZE: usize = 500;
@@ -107,18 +115,22 @@ pub struct PlexItem {
 }
 
 pub struct PlexClient {
-    client: reqwest::Client,
+    client: ClientWithMiddleware,
     options: SyncOptions,
 }
 
 impl PlexClient {
     pub fn new(options: SyncOptions) -> Self {
-        Self {
-            client: reqwest::Client::new(),
-            options,
-        }
+        // One middleware for every call of this client: it makes the `client`
+        // span with the URL and the status, and it injects the trace context
+        // with the global propagator. No call site does it by hand.
+        let client = ClientBuilder::new(reqwest::Client::new())
+            .with(TracingMiddleware::<SpanBackendWithUrl>::new())
+            .build();
+        Self { client, options }
     }
 
+    /// One page of the Plex API.
     async fn get<T: DeserializeOwned>(&self, path: &str, start: usize) -> Result<PlexContainer<T>> {
         let response = self
             .client
@@ -227,7 +239,42 @@ struct ShowEntry {
     ids: ExternalIds,
 }
 
+/// Imports the Plex library. The span holds the counts of the report, and the
+/// metrics hold the time and the number of runs.
+#[instrument(
+    skip_all,
+    err,
+    fields(
+        sync.movies = field::Empty,
+        sync.shows = field::Empty,
+        sync.episodes = field::Empty,
+        sync.plays_imported = field::Empty,
+        sync.progress_imported = field::Empty,
+    )
+)]
 pub async fn sync_plex_library(
+    pool: &PgPool,
+    catalog: Option<&Catalog>,
+    options: &SyncOptions,
+    clock: SharedClock,
+) -> Result<SyncReport> {
+    // The metrics belong to the run, not to a successful run: a timer that
+    // fails every time must look different from a timer that does not run.
+    let started = Instant::now();
+    let result = run_sync(pool, catalog, options, clock).await;
+    tracing::info!(
+        monotonic_counter.watchkeep_plex_sync_runs_total = 1_u64,
+        histogram.watchkeep_plex_sync_duration_ms = milliseconds(started.elapsed()),
+        sync_status = if result.is_ok() {
+            SYNC_SUCCESS
+        } else {
+            SYNC_ERROR
+        },
+    );
+    result
+}
+
+async fn run_sync(
     pool: &PgPool,
     catalog: Option<&Catalog>,
     options: &SyncOptions,
@@ -387,6 +434,12 @@ pub async fn sync_plex_library(
         }
         tx.commit().await?;
     }
+    let span = Span::current();
+    span.record("sync.movies", report.movies);
+    span.record("sync.shows", report.shows);
+    span.record("sync.episodes", report.episodes);
+    span.record("sync.plays_imported", report.plays_imported);
+    span.record("sync.progress_imported", report.progress_imported);
     tracing::info!(
         "sync: {} movies, {} shows, {} episodes, {} plays and {} positions imported",
         report.movies,

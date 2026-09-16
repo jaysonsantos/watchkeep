@@ -1,15 +1,18 @@
 //! CLI entry point. See `config::Cli` for the commands and the flags.
 
+use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::Duration;
 
 use clap::Parser;
 use color_eyre::eyre::{Result, WrapErr, eyre};
-use tracing_subscriber::EnvFilter;
+use tracing::Instrument;
 use watchkeep::app::{AppContext, SharedContext, build_router, has_web_ui};
-use watchkeep::config::{Cli, Command, Config, defaults, env};
+use watchkeep::config::{Cli, Command, Config, env};
 use watchkeep::trakt::import::{ImportOptions, import_trakt_export};
 use watchkeep_storage::db::{create_pool, open_database};
+use watchkeep_telemetry::tracing::EXPORT_GRACE;
+use watchkeep_telemetry::{configure_tracing, report_error, root_span, spawn};
 
 /// Pool size of the catalog database.
 const CATALOG_POOL_SIZE: u32 = 3;
@@ -23,39 +26,76 @@ const HEALTH_TIMEOUT: Duration = Duration::from_secs(5);
 /// The health check calls the server on the loopback address, whatever `--host` is.
 const LOOPBACK: &str = "127.0.0.1";
 
+/// The name of the task that runs the timed sync. tokio-console shows it.
+const SYNC_TIMER_TASK: &str = "sync_timer";
+
+/// `main` returns the exit code, not the error, because it reports the error
+/// itself. A `Result` would print the same report a second time.
 #[tokio::main]
-async fn main() -> Result<()> {
-    color_eyre::install()?;
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_env(env::LOG).unwrap_or_else(|_| EnvFilter::new(defaults::LOG)),
-        )
-        .with_target(false)
-        .init();
-    let cli = Cli::parse();
-    match cli.command.unwrap_or(Command::Serve) {
-        Command::Serve => serve(cli.config).await,
-        Command::Sync => {
-            let ctx = open_context(cli.config).await?;
-            let report = ctx.sync().await.map_err(|error| eyre!("{error:#}"))?;
-            println!("{}", serde_json::to_string(&report)?);
-            ctx.close().await;
-            Ok(())
+async fn main() -> ExitCode {
+    // First of all, so that every later line has a subscriber and a span.
+    let guard = match configure_tracing() {
+        Ok(guard) => guard,
+        Err(error) => {
+            // No subscriber yet, so this is the only way to say it.
+            eprintln!("cannot configure the telemetry: {error:?}");
+            return ExitCode::FAILURE;
         }
-        Command::TraktImport { zip, dry_run } => {
-            let ctx = open_context(cli.config).await?;
-            let options = ImportOptions {
-                clock: ctx.clock.clone(),
-                dry_run,
-            };
-            let report =
-                import_trakt_export(&ctx.pool, ctx.catalog.as_ref(), &zip, options).await?;
-            println!("{}", serde_json::to_string(&report)?);
-            ctx.close().await;
-            Ok(())
+    };
+    let code = run().await;
+    guard.force_flush();
+    drop(guard);
+    // The batch exporter sends on its own thread. Give it time before the exit.
+    tokio::time::sleep(EXPORT_GRACE).await;
+    code
+}
+
+/// Reads the command line and runs the command inside the root span. The report
+/// of a failure also happens inside the span, so that the trace of the command
+/// carries the exception and the error status.
+async fn run() -> ExitCode {
+    let Cli { config, command } = Cli::parse();
+    let command = command.unwrap_or(Command::Serve);
+    let span = root_span(command.name());
+    async move {
+        let result = match command {
+            Command::Serve => serve(config).await,
+            Command::Sync => sync(config).await,
+            Command::TraktImport { zip, dry_run } => trakt_import(config, zip, dry_run).await,
+            Command::Health => health(&config).await,
+        };
+        match result {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                report_error!("the command failed", error);
+                ExitCode::FAILURE
+            }
         }
-        Command::Health => health(&cli.config).await,
     }
+    .instrument(span)
+    .await
+}
+
+/// Runs one Plex library sync and prints the report as JSON.
+async fn sync(config: Config) -> Result<()> {
+    let ctx = open_context(config).await?;
+    let report = ctx.sync().await.map_err(|error| eyre!("{error:#}"))?;
+    println!("{}", serde_json::to_string(&report)?);
+    ctx.close().await;
+    Ok(())
+}
+
+/// Imports a Trakt export and prints the report as JSON.
+async fn trakt_import(config: Config, zip: std::path::PathBuf, dry_run: bool) -> Result<()> {
+    let ctx = open_context(config).await?;
+    let options = ImportOptions {
+        clock: ctx.clock.clone(),
+        dry_run,
+    };
+    let report = import_trakt_export(&ctx.pool, ctx.catalog.as_ref(), &zip, options).await?;
+    println!("{}", serde_json::to_string(&report)?);
+    ctx.close().await;
+    Ok(())
 }
 
 /// Exit code 0 when the server answers `/healthz` with success, else an error.
@@ -123,15 +163,25 @@ async fn serve(config: Config) -> Result<()> {
     if !ctx.config.sync_interval.is_zero() && ctx.config.sync_configured() {
         let every = ctx.config.sync_interval;
         let ctx = ctx.clone();
-        timer = Some(tokio::spawn(async move {
+        let task = async move {
             tokio::time::sleep(FIRST_SYNC_DELAY).await;
             loop {
-                if let Err(error) = ctx.sync().await {
-                    tracing::error!("sync failed: {error:#}");
+                // One span per run, because each run is one unit of work. The
+                // call to `sync` belongs inside the block: it spawns the work
+                // and takes the span of the caller, and the report of a failure
+                // belongs to the same span.
+                let span = tracing::info_span!(SYNC_TIMER_TASK, otel.kind = "consumer");
+                async {
+                    if let Err(error) = ctx.sync().await {
+                        report_error!("the timed sync failed", error);
+                    }
                 }
+                .instrument(span)
+                .await;
                 tokio::time::sleep(every).await;
             }
-        }));
+        };
+        timer = Some(spawn!(SYNC_TIMER_TASK, task).wrap_err("cannot start the sync timer")?);
     }
 
     let address = format!("{}:{}", ctx.config.host, ctx.config.port);

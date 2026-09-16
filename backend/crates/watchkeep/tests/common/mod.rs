@@ -25,6 +25,7 @@ use watchkeep_catalog::schema::apply_schema;
 use watchkeep_storage::clock::Clock;
 use watchkeep_storage::db::{create_pool, migrate};
 use watchkeep_storage::model::MediaKind;
+use watchkeep_telemetry::testing::{Flusher, init_goodies};
 
 /// The admin connection of the test server. The tests create and drop their own databases.
 pub const TEST_DATABASE_URL_VAR: &str = "WATCHKEEP_TEST_DATABASE_URL";
@@ -129,6 +130,8 @@ pub struct TestContext {
     pub clock: Arc<FakeClock>,
     name: String,
     with_catalog: bool,
+    /// The same layers as production. It flushes when the test ends.
+    _telemetry: Flusher,
 }
 
 impl std::ops::Deref for TestContext {
@@ -188,6 +191,7 @@ pub async fn test_context(
     overrides: impl FnOnce(&mut Config),
     with_catalog: bool,
 ) -> Result<TestContext> {
+    let _telemetry = init_goodies();
     let name = unique_name();
     admin(format!("CREATE DATABASE {name}")).await?;
     let pool = create_pool(&url_for(&name), 3).await?;
@@ -218,6 +222,7 @@ pub async fn test_context(
         clock,
         name,
         with_catalog,
+        _telemetry,
     })
 }
 
