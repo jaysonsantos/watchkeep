@@ -3,6 +3,7 @@
  * Regenerate with `cargo test --workspace --lib export_bindings`; prek checks that they are current.
  */
 
+export type { AddMediaBody } from "./generated/AddMediaBody.ts";
 export type { BucketCount } from "./generated/BucketCount.ts";
 export type { CatalogMovie } from "./generated/CatalogMovie.ts";
 export type { CatalogShow } from "./generated/CatalogShow.ts";

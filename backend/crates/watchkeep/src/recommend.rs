@@ -16,9 +16,7 @@ use chrono::{DateTime, Utc};
 use eyre::Result;
 use serde::Serialize;
 use uuid::Uuid;
-use watchkeep_catalog::{
-    Candidate, Catalog, CatalogMovie, CatalogShow, GenreKind, GenreWeights, TasteFacts,
-};
+use watchkeep_catalog::{Candidate, Catalog, CatalogMovie, CatalogShow, GenreWeights, TasteFacts};
 use watchkeep_storage::clock::{SharedClock, date_of};
 use watchkeep_storage::model::MediaKind;
 use watchkeep_storage::queries::{Queries, TasteItem};
@@ -206,8 +204,12 @@ fn top_shares(weights: &HashMap<String, f64>) -> Vec<TasteShare> {
 #[derive(Default)]
 struct Taste {
     /// Weight per movie genre id and per show genre id, before the unit vector.
+    /// One name can appear in both maps, so neither map is the profile.
     movie_genres: HashMap<i64, f64>,
     show_genres: HashMap<i64, f64>,
+    /// Weight per genre name. This is the profile: one entry per genre, whether
+    /// a movie, a show, or both carry it.
+    genre_weights: HashMap<String, f64>,
     /// Weight per collection of a watched movie.
     collections: HashMap<i64, f64>,
     /// Weight per ISO 639-1 language code.
@@ -297,6 +299,7 @@ impl Taste {
                 taste.show_genres.insert(*genre_id, *weight);
             }
         }
+        taste.genre_weights = by_genre_name;
         taste
     }
 
@@ -306,21 +309,12 @@ impl Taste {
         ids
     }
 
-    fn profile(&self, genre_names: &GenreNames) -> TasteProfile {
-        let mut named: HashMap<String, f64> = HashMap::new();
-        for (genre_id, weight) in &self.movie_genres {
-            if let Some(name) = genre_names.movies.get(genre_id) {
-                *named.entry(name.clone()).or_default() += weight;
-            }
-        }
-        for (genre_id, weight) in &self.show_genres {
-            if let Some(name) = genre_names.shows.get(genre_id) {
-                *named.entry(name.clone()).or_default() += weight;
-            }
-        }
+    /// The weights per name, not the two id maps: a genre that both a movie and
+    /// a show carry holds one id in each map and must count only once.
+    fn profile(&self) -> TasteProfile {
         TasteProfile {
             items: self.watched_items,
-            genres: top_shares(&named),
+            genres: top_shares(&self.genre_weights),
             languages: top_shares(&self.languages),
         }
     }
@@ -384,8 +378,8 @@ impl Recommender {
         let (movie_facts, show_facts, movie_names, show_names, episode_totals) = tokio::try_join!(
             catalog.movie_taste_facts(&movie_ids),
             catalog.show_taste_facts(&show_ids),
-            catalog.genre_names(GenreKind::Movie),
-            catalog.genre_names(GenreKind::Tv),
+            catalog.movie_genre_names(),
+            catalog.show_genre_names(),
             catalog.aired_episode_counts(&show_ids, today),
         )?;
         let genre_names = GenreNames {
@@ -418,9 +412,9 @@ impl Recommender {
         let mut movies = movies;
         movies.retain(|candidate| !listed.contains(&candidate.item.tmdb_id));
         Ok(Recommendations {
-            profile: taste.profile(&genre_names),
-            movies: rank(movies, &taste, &genre_names.movies),
-            shows: rank(shows, &taste, &genre_names.shows),
+            profile: taste.profile(),
+            movies: rank(movies, &taste, &taste.movie_genres, &genre_names.movies),
+            shows: rank(shows, &taste, &taste.show_genres, &genre_names.shows),
             next_in_collection,
             returning,
         })
@@ -492,20 +486,16 @@ fn ids_of(items: &[TasteItem], kind: MediaKind) -> Vec<i64> {
 }
 
 /// The final score of a genre candidate: how well it fits, how good it is, and
-/// a lift for a language that the history is full of.
+/// a lift for a language that the history is full of. `genre_weights` and
+/// `genre_names` belong to the same kind as the candidates, because one TMDB
+/// genre id can name a movie genre and a show genre at the same time.
 fn rank<T>(
     candidates: Vec<Candidate<T>>,
     taste: &Taste,
+    genre_weights: &HashMap<i64, f64>,
     genre_names: &HashMap<i64, String>,
 ) -> Vec<Recommendation<T>> {
-    let weights = |genre_id: &i64| -> f64 {
-        taste
-            .movie_genres
-            .get(genre_id)
-            .or_else(|| taste.show_genres.get(genre_id))
-            .copied()
-            .unwrap_or(0.0)
-    };
+    let weights = |genre_id: &i64| -> f64 { genre_weights.get(genre_id).copied().unwrap_or(0.0) };
     let mut items: Vec<Recommendation<T>> = candidates
         .into_iter()
         .map(|candidate| {
@@ -513,7 +503,9 @@ fn rank<T>(
             let score = candidate.affinity
                 * (candidate.quality / MAX_CATALOG_RATING)
                 * (1.0 + LANGUAGE_BONUS * language);
+            // A genre that the profile does not hold is no reason for the pick.
             let mut genres = candidate.genres;
+            genres.retain(|genre_id| weights(genre_id) > 0.0);
             genres.sort_by(|a, b| weights(b).total_cmp(&weights(a)).then_with(|| a.cmp(b)));
             genres.truncate(MAX_REASON_GENRES);
             Recommendation {

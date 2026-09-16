@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, name_en, name_pt FROM genre WHERE kind = $1",
+  "query": "SELECT DISTINCT g.id, g.name_en, g.name_pt\n             FROM genre g JOIN tmdb_show_genre sg ON sg.genre_id = g.id",
   "describe": {
     "columns": [
       {
@@ -38,9 +38,7 @@
       }
     ],
     "parameters": {
-      "Left": [
-        "Text"
-      ]
+      "Left": []
     },
     "nullable": [
       false,
@@ -48,5 +46,5 @@
       true
     ]
   },
-  "hash": "9f139d3a1747504bcff7303b76eb5686c6ad4899370478bf4d209295f09f6877"
+  "hash": "2ec2d7a2b204c2dff4a47cab35f9ecbbf839e9125963d0ac0af6d0343d3cdc36"
 }

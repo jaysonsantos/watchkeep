@@ -10,7 +10,7 @@ import {
   sortOf,
   type WatchFilter,
 } from "./lists.ts";
-import type { Id, MediaKind } from "./types.ts";
+import type { AddMediaBody, Id, MediaKind } from "./types.ts";
 
 /** The prefix of every API route. */
 export const API_BASE = "/api";
@@ -68,17 +68,9 @@ export function statsUrl(timezone: string): string {
   return query ? `${API_BASE}/statistics?${query}` : `${API_BASE}/statistics`;
 }
 
-/** The body of `POST /api/movies` and `POST /api/shows`. */
-export interface AddMediaRequest {
-  tmdb_id?: number;
-  title?: string;
-  year?: number;
-  watchlist?: boolean;
-}
-
 /** Add a catalog item to the library. Returns the row, created or existing. */
 export async function addFromCatalog(kind: MediaKind, tmdbId: number, watchlist: boolean): Promise<{ id: Id }> {
-  const body: AddMediaRequest = { tmdb_id: tmdbId, watchlist };
+  const body: AddMediaBody = { tmdb_id: tmdbId, watchlist };
   return send<{ id: Id }>("POST", kind === "show" ? `${API_BASE}/shows` : `${API_BASE}/movies`, body);
 }
 

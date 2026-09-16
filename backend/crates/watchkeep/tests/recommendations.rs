@@ -13,21 +13,26 @@ const PATH: &str = "/api/recommendations";
 /// so they are plain SQL, not macros.
 async fn seed_recommendations(pool: &PgPool) -> Result<()> {
     sqlx::raw_sql(AssertSqlSafe(
+        // TMDB gives id 18 to a movie genre and to a show genre. `genre.id` is
+        // the only primary key, so the mirror keeps one row with one `kind`
+        // word. A movie of genre 18 must still count as Drama.
         "INSERT INTO genre (id, kind, name_en, name_pt) VALUES
            (28, 'movie', 'Action', 'Ação'),
            (80, 'movie', 'Crime', 'Crime'),
            (35, 'movie', 'Comedy', 'Comédia'),
+           (878, 'movie', 'Science Fiction', 'Ficção Científica'),
            (18, 'tv', 'Drama', 'Drama'),
            (9648, 'tv', 'Mystery', 'Mistério');
          INSERT INTO collection (id, name_en, name_pt) VALUES (1000, 'The Mann Collection', 'Coleção Mann');
          UPDATE tmdb_movie SET vote_count = 5000, vote_average = 8.0, original_language = 'en', collection_id = 1000;
          UPDATE tmdb_show SET vote_count = 3000, vote_average = 8.5, original_language = 'en', in_production = true;
-         INSERT INTO tmdb_movie_genre (movie_id, genre_id) VALUES (949, 28), (949, 80), (4638, 28), (4638, 80);
+         INSERT INTO tmdb_movie_genre (movie_id, genre_id) VALUES (949, 28), (949, 80), (949, 18), (4638, 28), (4638, 80);
          INSERT INTO tmdb_show_genre (show_id, genre_id) VALUES (95396, 18), (95396, 9648);
          INSERT INTO tmdb_movie (id, title_en, release_date, vote_count, vote_average, original_language, fetched_at, raw_json)
            VALUES (600, 'Thief', '1981-03-27', 1200, 7.4, 'en', 0, '{}'),
-                  (601, 'The Big Lebowski', '1998-03-06', 1200, 7.4, 'en', 0, '{}');
-         INSERT INTO tmdb_movie_genre (movie_id, genre_id) VALUES (600, 28), (600, 80), (601, 35);",
+                  (601, 'The Big Lebowski', '1998-03-06', 1200, 7.4, 'en', 0, '{}'),
+                  (602, 'Blade Runner', '1982-06-25', 1200, 7.4, 'en', 0, '{}');
+         INSERT INTO tmdb_movie_genre (movie_id, genre_id) VALUES (600, 28), (600, 80), (601, 35), (602, 18), (602, 878);",
     ))
     .execute(pool)
     .await?;
@@ -80,7 +85,11 @@ async fn recommends_by_genre_and_names_the_matching_genres() -> Result<()> {
         .iter()
         .map(|genre| genre["name"].as_str().unwrap_or_default())
         .collect();
-    assert_eq!(genres, vec!["Action", "Crime"]);
+    assert_eq!(
+        genres,
+        vec!["Action", "Crime", "Drama"],
+        "Drama counts for a movie, although the genre row says kind = tv"
+    );
 
     let movies = tmdb_ids(&body["movies"]);
     assert!(
@@ -96,6 +105,11 @@ async fn recommends_by_genre_and_names_the_matching_genres() -> Result<()> {
         "the watched movie is in the library"
     );
     assert_eq!(reasons(&body["movies"], 600), vec!["Action", "Crime"]);
+    assert_eq!(
+        reasons(&body["movies"], 602),
+        vec!["Drama"],
+        "Science Fiction is no reason: the profile gives it no weight"
+    );
     t.close().await
 }
 

@@ -103,22 +103,6 @@ pub struct CatalogShow {
     pub number_of_episodes: Option<i32>,
 }
 
-/// The `kind` words of the `genre` table. TMDB calls the genres of a show `tv`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum GenreKind {
-    Movie,
-    Tv,
-}
-
-impl GenreKind {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Movie => "movie",
-            Self::Tv => "tv",
-        }
-    }
-}
-
 /// What one watched item says about taste: its genres, its language, and the
 /// collection or the production state that makes a follow-up possible.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -710,11 +694,31 @@ impl Catalog {
 
     // region: recommendations
 
-    /// The name of every genre of one kind, for the reason line of a recommendation.
-    pub async fn genre_names(&self, kind: GenreKind) -> Result<HashMap<i64, String>> {
+    /// The name of every genre that a movie uses, for the reason line of a
+    /// recommendation and for the affinity vector.
+    ///
+    /// The `kind` column of `genre` cannot answer this. TMDB gives the same id
+    /// to a movie genre and to a show genre (18 is Drama for both), and the
+    /// schema makes `genre.id` the only primary key, so one row holds one word
+    /// and the mirror decides which. The join table is the truth instead.
+    pub async fn movie_genre_names(&self) -> Result<HashMap<i64, String>> {
         let rows = sqlx::query!(
-            "SELECT id, name_en, name_pt FROM genre WHERE kind = $1",
-            kind.as_str()
+            "SELECT DISTINCT g.id, g.name_en, g.name_pt
+             FROM genre g JOIN tmdb_movie_genre mg ON mg.genre_id = g.id"
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|row| Some((row.id, self.pick(row.name_en, row.name_pt)?)))
+            .collect())
+    }
+
+    /// The name of every genre that a show uses. See `movie_genre_names`.
+    pub async fn show_genre_names(&self) -> Result<HashMap<i64, String>> {
+        let rows = sqlx::query!(
+            "SELECT DISTINCT g.id, g.name_en, g.name_pt
+             FROM genre g JOIN tmdb_show_genre sg ON sg.genre_id = g.id"
         )
         .fetch_all(&self.pool)
         .await?;

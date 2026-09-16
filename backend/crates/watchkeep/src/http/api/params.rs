@@ -106,13 +106,19 @@ pub struct WatchedBody {
     pub watched_at: Option<String>,
 }
 
-/// `POST /api/movies` and `POST /api/shows`.
-#[derive(Debug, Default, Deserialize)]
+/// `POST /api/movies` and `POST /api/shows`. Every field may be absent, so the
+/// TypeScript fields are optional, not nullable.
+#[derive(Debug, Default, Deserialize, ts_rs::TS)]
+#[ts(export)]
 #[serde(default)]
 pub struct AddMediaBody {
+    #[ts(optional)]
     pub tmdb_id: Option<i64>,
+    #[ts(optional)]
     pub title: Option<String>,
+    #[ts(optional)]
     pub year: Option<i32>,
+    #[ts(optional)]
     pub watchlist: Option<bool>,
 }
 
