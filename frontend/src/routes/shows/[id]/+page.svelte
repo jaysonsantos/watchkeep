@@ -1,17 +1,17 @@
 <script lang="ts">
   import ActionButton from "$lib/components/ActionButton.svelte";
   import ProgressBar from "$lib/components/ProgressBar.svelte";
-  import { episodeCode, fmtDate, percent } from "$lib/format.ts";
+  import { episodeCode, fmtDate, percent, today } from "$lib/format.ts";
   import type { PageProps } from "./$types";
 
   let { data }: PageProps = $props();
 
-  const today = new Date().toISOString().slice(0, 10);
+  const day = today();
   const show = $derived(data.show);
   const complete = $derived(show.total_episodes > 0 && show.watched_count >= show.total_episodes);
   const nextUp = $derived(
     data.episodes.find(
-      (episode) => episode.season > 0 && episode.play_count === 0 && (!episode.aired_at || episode.aired_at <= today),
+      (episode) => episode.season > 0 && episode.play_count === 0 && (!episode.aired_at || episode.aired_at <= day),
     ),
   );
   const seasons = $derived.by(() => {
@@ -82,7 +82,7 @@
           <thead><tr><th>Episode</th><th>Status</th><th></th><th>Last watched</th><th>Aired</th></tr></thead>
           <tbody>
             {#each episodes as episode (`${episode.season}:${episode.number}`)}
-              {@const upcoming = Boolean(episode.aired_at && episode.aired_at > today)}
+              {@const upcoming = Boolean(episode.aired_at && episode.aired_at > day)}
               <tr class:future={upcoming}>
                 <td><span class="ep-code">{episodeCode(episode.season, episode.number)}</span>{episode.title ?? ""}</td>
                 <td>

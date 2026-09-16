@@ -34,6 +34,7 @@ text_enum! {
         Progress => "progress",
         Play => "play",
         DuplicatePlay => "duplicate-play",
+        AlreadyWatched => "already-watched",
         Rating => "rating",
         IgnoredAccount => "ignored-account",
     }
@@ -376,6 +377,22 @@ impl Scrobbler {
         })
     }
 
+    /// A play of this target inside the rewatch window. Plex sends a late `stop` or
+    /// `pause` after a `scrobble`, and both events must not undo the play.
+    async fn played_recently<C: DerefMut<Target = PgConnection>>(
+        &self,
+        library: &mut Library<C>,
+        target: &ResolvedTarget,
+    ) -> Result<bool> {
+        let last = library.last_play(target.kind, target.id).await?;
+        let now = self.clock.now();
+        Ok(last.is_some_and(|play| {
+            (now - play.watched_at)
+                .to_std()
+                .is_ok_and(|since| since < self.config.rewatch_window)
+        }))
+    }
+
     /// The position and duration of an event: what Plex sent, else what the row has.
     async fn playback<C: DerefMut<Target = PgConnection>>(
         library: &mut Library<C>,
@@ -400,6 +417,16 @@ impl Scrobbler {
         target: &ResolvedTarget,
         state: PlayState,
     ) -> Result<ScrobbleResult> {
+        if self.played_recently(library, target).await? {
+            return Ok(ScrobbleResult {
+                action: ScrobbleAction::AlreadyWatched,
+                target_kind: target.kind,
+                target_id: Some(target.id),
+                title: target.title.clone(),
+                position_ms: None,
+                percent: None,
+            });
+        }
         let (position, duration) = Self::playback(library, event, target).await?;
         library
             .set_progress(ProgressInput {
@@ -448,14 +475,8 @@ impl Scrobbler {
         target: &ResolvedTarget,
         source: PlaySource,
     ) -> Result<ScrobbleResult> {
-        let last = library.last_play(target.kind, target.id).await?;
-        let now = self.clock.now();
+        let duplicate = self.played_recently(library, target).await?;
         library.clear_progress(target.kind, target.id).await?;
-        let duplicate = last.is_some_and(|play| {
-            (now - play.watched_at)
-                .to_std()
-                .is_ok_and(|since| since < self.config.rewatch_window)
-        });
         if duplicate {
             return Ok(ScrobbleResult {
                 action: ScrobbleAction::DuplicatePlay,

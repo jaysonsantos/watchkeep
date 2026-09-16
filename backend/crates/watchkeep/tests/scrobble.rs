@@ -221,6 +221,56 @@ async fn does_not_count_scrobble_plus_stop_as_two_plays() -> Result<()> {
 }
 
 #[tokio::test]
+async fn keeps_an_episode_watched_when_plex_stops_and_pauses_after_the_scrobble() -> Result<()> {
+    let t = test_context(|_| {}, false).await?;
+    let played = t
+        .scrobbler
+        .apply(&event(&episode_payload(
+            json!({ "event": "media.scrobble" }),
+            json!({}),
+        )))
+        .await?;
+    let episode = played.target_id.expect("an episode id");
+    assert_eq!(played.action, ScrobbleAction::Play);
+
+    for name in ["media.stop", "media.pause"] {
+        let late = t
+            .scrobbler
+            .apply(&event(&episode_payload(
+                json!({ "event": name }),
+                json!({ "viewOffset": null }),
+            )))
+            .await?;
+        assert_eq!(late.action, ScrobbleAction::AlreadyWatched, "{name}");
+    }
+    let mut library = t.library().await?;
+    assert!(
+        library
+            .get_progress(TargetKind::Episode, episode)
+            .await?
+            .is_none(),
+        "no progress row comes back after the play"
+    );
+    assert_eq!(library.play_count(TargetKind::Episode, episode).await?, 1);
+
+    t.clock.advance_minutes(60 * 24);
+    let later = t
+        .scrobbler
+        .apply(&event(&episode_payload(
+            json!({ "event": "media.play" }),
+            json!({}),
+        )))
+        .await?;
+    assert_eq!(
+        later.action,
+        ScrobbleAction::Progress,
+        "a rewatch after the window tracks progress again"
+    );
+    drop(library);
+    t.close().await
+}
+
+#[tokio::test]
 async fn matches_the_same_episode_across_guid_and_season_number() -> Result<()> {
     let t = test_context(|_| {}, false).await?;
     t.scrobbler

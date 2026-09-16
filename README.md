@@ -253,6 +253,8 @@ The `X-Total-Count` response header gives the number of matches before
 - `media.stop`: if the position is at or above the threshold, record a play. Otherwise save the position.
 - `media.rate`: save the rating.
 - A play inside the rewatch window of the last play of the same item is not recorded twice.
+- A position event inside that window is dropped too, so a late `media.stop` or `media.pause`
+  does not send a watched item back to the in-progress list. The webhook log shows `already-watched`.
 
 Item identity: Plex guid, then TMDB id, then TVDB id, then IMDb id, then title and year.
 With a catalog, an episode TMDB id also resolves its show.

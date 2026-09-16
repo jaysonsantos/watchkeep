@@ -55,4 +55,5 @@ The Rust sources live in `backend/crates/` and the SvelteKit sources in `fronten
 - Plex sends `multipart/form-data` with a `payload` field that holds JSON. The webhook also accepts plain JSON.
 - Episode payloads carry ids of the episode, not of the show. The show has only `grandparentGuid` and `grandparentTitle`.
 - `viewOffset` is present on some events only. Keep the last known position when it is absent.
-- `media.scrobble` fires at about 90%. A `media.stop` can follow it. The rewatch window prevents a second play.
+- `media.scrobble` fires at about 90%. A `media.stop` or a `media.pause` can follow it. The rewatch window
+  prevents a second play and also drops the late position events, which would add a progress row at 0%.

@@ -3,4 +3,4 @@
 /**
  * What the scrobbler did with an event. The text is the `outcome` of the webhook log.
  */
-export type ScrobbleAction = "progress" | "play" | "duplicate-play" | "rating" | "ignored-account";
+export type ScrobbleAction = "progress" | "play" | "duplicate-play" | "already-watched" | "rating" | "ignored-account";
