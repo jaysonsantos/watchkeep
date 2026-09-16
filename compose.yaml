@@ -26,19 +26,25 @@ services:
         condition: service_healthy
     ports:
       - "${WATCHKEEP_PORT:-8484}:8484"
+    # The list form, because the last two entries carry no value: Compose passes
+    # such a variable only when `.env` or the shell sets it. A `KEY: ${KEY:-}`
+    # entry would pass an empty string, and an empty endpoint is not the default
+    # endpoint of the SDK.
     environment:
-      WATCHKEEP_DATABASE_URL: postgres://watchkeep:${POSTGRES_PASSWORD:-watchkeep}@postgres:5432/watchkeep
-      WATCHKEEP_CATALOG_DATABASE_URL: postgres://watchkeep:${POSTGRES_PASSWORD:-watchkeep}@postgres:5432/catalog
-      WATCHKEEP_CATALOG_LANGUAGE: ${WATCHKEEP_CATALOG_LANGUAGE:-en}
-      WATCHKEEP_WEBHOOK_TOKEN: ${WATCHKEEP_WEBHOOK_TOKEN:?set WATCHKEEP_WEBHOOK_TOKEN in .env}
-      WATCHKEEP_PLEX_URL: ${WATCHKEEP_PLEX_URL:-}
-      WATCHKEEP_PLEX_TOKEN: ${WATCHKEEP_PLEX_TOKEN:-}
-      WATCHKEEP_PLEX_ACCOUNTS: ${WATCHKEEP_PLEX_ACCOUNTS:-}
-      WATCHKEEP_SYNC_INTERVAL_MINUTES: ${WATCHKEEP_SYNC_INTERVAL_MINUTES:-0}
-      WATCHKEEP_WATCHED_THRESHOLD_PERCENT: ${WATCHKEEP_WATCHED_THRESHOLD_PERCENT:-85}
-      # The name of this process in the collector. Add OTEL_EXPORTER_OTLP_ENDPOINT
-      # and OTEL_EXPORTER_OTLP_HEADERS when a collector runs somewhere else.
-      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-watchkeep}
+      - WATCHKEEP_DATABASE_URL=postgres://watchkeep:${POSTGRES_PASSWORD:-watchkeep}@postgres:5432/watchkeep
+      - WATCHKEEP_CATALOG_DATABASE_URL=postgres://watchkeep:${POSTGRES_PASSWORD:-watchkeep}@postgres:5432/catalog
+      - WATCHKEEP_CATALOG_LANGUAGE=${WATCHKEEP_CATALOG_LANGUAGE:-en}
+      - WATCHKEEP_WEBHOOK_TOKEN=${WATCHKEEP_WEBHOOK_TOKEN:?set WATCHKEEP_WEBHOOK_TOKEN in .env}
+      - WATCHKEEP_PLEX_URL=${WATCHKEEP_PLEX_URL:-}
+      - WATCHKEEP_PLEX_TOKEN=${WATCHKEEP_PLEX_TOKEN:-}
+      - WATCHKEEP_PLEX_ACCOUNTS=${WATCHKEEP_PLEX_ACCOUNTS:-}
+      - WATCHKEEP_SYNC_INTERVAL_MINUTES=${WATCHKEEP_SYNC_INTERVAL_MINUTES:-0}
+      - WATCHKEEP_WATCHED_THRESHOLD_PERCENT=${WATCHKEEP_WATCHED_THRESHOLD_PERCENT:-85}
+      # The name of this process in the collector.
+      - OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-watchkeep}
+      # A collector on another host, and its authorization header.
+      - OTEL_EXPORTER_OTLP_ENDPOINT
+      - OTEL_EXPORTER_OTLP_HEADERS
 
 volumes:
   postgres-data:

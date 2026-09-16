@@ -207,6 +207,14 @@ collector the exporters give up after two seconds, and the server continues.
 | `CONSOLE_SUBSCRIBER` | empty | A port. When it is set, tokio-console starts. |
 | `CONSOLE_SUBSCRIBER_ADDRESS` | `127.0.0.1` | Bind address of tokio-console. |
 
+Docker Compose passes `OTEL_EXPORTER_OTLP_ENDPOINT` and
+`OTEL_EXPORTER_OTLP_HEADERS` to the container when `.env` sets them. The
+address `127.0.0.1` is the container itself, so a collector on another host
+needs the endpoint variable.
+
+A span never carries a query string, because the webhook URL carries the token.
+The span of a request holds the path only.
+
 Without a collector, the SDK writes one error per failed export. To silence
 it, set `RUST_LOG=info,opentelemetry_sdk=off,opentelemetry-otlp=off`.
 

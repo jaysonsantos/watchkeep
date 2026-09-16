@@ -42,13 +42,7 @@ async fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let code = match run().await {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(error) => {
-            report_error!("the command failed", error);
-            ExitCode::FAILURE
-        }
-    };
+    let code = run().await;
     guard.force_flush();
     drop(guard);
     // The batch exporter sends on its own thread. Give it time before the exit.
@@ -56,21 +50,30 @@ async fn main() -> ExitCode {
     code
 }
 
-/// Reads the command line and runs the command inside the root span.
-async fn run() -> Result<()> {
-    let cli = Cli::parse();
-    let command = cli.command.unwrap_or(Command::Serve);
+/// Reads the command line and runs the command inside the root span. The report
+/// of a failure also happens inside the span, so that the trace of the command
+/// carries the exception and the error status.
+async fn run() -> ExitCode {
+    let Cli { config, command } = Cli::parse();
+    let command = command.unwrap_or(Command::Serve);
     let span = root_span(command.name());
-    match command {
-        Command::Serve => serve(cli.config).instrument(span).await,
-        Command::Sync => sync(cli.config).instrument(span).await,
-        Command::TraktImport { zip, dry_run } => {
-            trakt_import(cli.config, zip, dry_run)
-                .instrument(span)
-                .await
+    async move {
+        let result = match command {
+            Command::Serve => serve(config).await,
+            Command::Sync => sync(config).await,
+            Command::TraktImport { zip, dry_run } => trakt_import(config, zip, dry_run).await,
+            Command::Health => health(&config).await,
+        };
+        match result {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                report_error!("the command failed", error);
+                ExitCode::FAILURE
+            }
         }
-        Command::Health => health(&cli.config).instrument(span).await,
     }
+    .instrument(span)
+    .await
 }
 
 /// Runs one Plex library sync and prints the report as JSON.

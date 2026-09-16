@@ -136,7 +136,9 @@ pub async fn trace_request(
         otel.kind = SERVER_KIND,
         http.method = %method,
         http.route = %route,
-        http.url = %request.uri(),
+        // The path only. The query string of the webhook carries the token, and
+        // a span must never export a secret.
+        http.url = %request.uri().path(),
         http.status_code = field::Empty,
         http.request.header.user_agent = field::Empty,
         http.request.header.content_type = field::Empty,
@@ -155,11 +157,11 @@ pub async fn trace_request(
         KeyValue::new(label::ROUTE, route),
         KeyValue::new(label::KIND, SERVER_KIND),
     ];
-    metrics.active.add(1, &labels);
+    let active = ActiveRequest::new(metrics.active.clone(), labels.clone());
     let started = Instant::now();
     let response = next.run(request).instrument(span.clone()).await;
     let elapsed = started.elapsed();
-    metrics.active.add(-1, &labels);
+    drop(active);
 
     let status = response.status();
     span.record("http.status_code", status.as_u16());
@@ -167,6 +169,26 @@ pub async fn trace_request(
     metrics.requests.add(1, &labels);
     metrics.duration.record(milliseconds(elapsed), &labels);
     response
+}
+
+/// One request in flight. It counts down on drop, so a request that the client
+/// cancels, and a handler that panics, leave the counter balanced.
+struct ActiveRequest {
+    counter: UpDownCounter<i64>,
+    labels: Vec<KeyValue>,
+}
+
+impl ActiveRequest {
+    fn new(counter: UpDownCounter<i64>, labels: Vec<KeyValue>) -> Self {
+        counter.add(1, &labels);
+        Self { counter, labels }
+    }
+}
+
+impl Drop for ActiveRequest {
+    fn drop(&mut self) {
+        self.counter.add(-1, &self.labels);
+    }
 }
 
 /// `error` for an answer that the server could not produce, else `success`.
