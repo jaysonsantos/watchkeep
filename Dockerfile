@@ -59,6 +59,8 @@ COPY --from=web /app/frontend/build ./frontend/build
 # The numeric id of `nonroot`. Kubernetes cannot verify `runAsNonRoot` for a user name.
 USER 65532:65532
 EXPOSE 8484
-HEALTHCHECK --interval=30s --timeout=5s CMD ["watchkeep", "health"]
+# The timeout covers the HTTP timeout of the check (5s) and the shutdown of the
+# telemetry: two flushes of at most 2s each, plus the export grace of 1s.
+HEALTHCHECK --interval=30s --timeout=15s CMD ["watchkeep", "health"]
 ENTRYPOINT ["watchkeep"]
 CMD ["serve"]

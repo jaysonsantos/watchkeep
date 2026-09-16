@@ -42,6 +42,10 @@ const TRAKT_PLAYER: &str = "Trakt";
 /// The file of the export that lists the endpoints Trakt failed to export.
 const ERRORS_FILE: &str = "_errors.json";
 
+/// The `import_status` label of the run metrics.
+const IMPORT_SUCCESS: &str = "success";
+const IMPORT_ERROR: &str = "error";
+
 const JSON_EXTENSION: &str = ".json";
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -515,7 +519,28 @@ pub async fn import_trakt_export(
     zip_path: &Path,
     options: ImportOptions,
 ) -> Result<TraktImportReport> {
+    // The metrics belong to the run, not to a successful run: an import that
+    // fails every time must look different from an import that never runs.
     let started = Instant::now();
+    let result = run_import(pool, catalog, zip_path, options).await;
+    tracing::info!(
+        monotonic_counter.watchkeep_trakt_imports_total = 1_u64,
+        histogram.watchkeep_trakt_import_duration_ms = milliseconds(started.elapsed()),
+        import_status = if result.is_ok() {
+            IMPORT_SUCCESS
+        } else {
+            IMPORT_ERROR
+        },
+    );
+    result
+}
+
+async fn run_import(
+    pool: &PgPool,
+    catalog: Option<&Catalog>,
+    zip_path: &Path,
+    options: ImportOptions,
+) -> Result<TraktImportReport> {
     let clock = options.clock;
     let now = clock.now();
     let bytes =
@@ -809,9 +834,5 @@ pub async fn import_trakt_export(
     let span = Span::current();
     span.record("trakt.plays", report.plays);
     span.record("trakt.ratings", report.ratings);
-    tracing::info!(
-        monotonic_counter.watchkeep_trakt_imports_total = 1_u64,
-        histogram.watchkeep_trakt_import_duration_ms = milliseconds(started.elapsed()),
-    );
     Ok(report)
 }
