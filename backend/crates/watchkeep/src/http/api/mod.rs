@@ -5,6 +5,7 @@ mod episodes;
 mod history;
 mod movies;
 mod params;
+mod recommendations;
 mod responses;
 mod search;
 mod shows;
@@ -32,6 +33,7 @@ pub fn routes() -> Router<SharedContext> {
         .merge(episodes::routes())
         .merge(history::routes())
         .merge(movies::routes())
+        .merge(recommendations::routes())
         .merge(search::routes())
         .merge(shows::routes())
         .merge(statistics::routes())

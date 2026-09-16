@@ -50,6 +50,22 @@ export function percent(position: number, total: number | null): number {
   return total ? Math.min(100, Math.round((position / total) * 100)) : 0;
 }
 
+/** A share or a score from 0.0 to 1.0 as a whole percent. */
+export function fmtShare(value: number): number {
+  return Math.round(Math.max(0, Math.min(1, value)) * 100);
+}
+
+const LANGUAGE_NAMES = new Intl.DisplayNames(undefined, { type: "language" });
+
+/** An ISO 639-1 code as a language name, or the code when there is no name. */
+export function languageName(code: string): string {
+  try {
+    return LANGUAGE_NAMES.of(code) ?? code;
+  } catch {
+    return code;
+  }
+}
+
 export function initials(title: string): string {
   return title
     .split(/\s+/)

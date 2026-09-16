@@ -19,9 +19,10 @@ the web UI.
 - Import of a Trakt data export: history, ratings, playback positions, watchlist, and hidden shows.
 - Watchlist for movies and shows.
 - Statistics page: watch time, plays per month, per weekday, and per hour, day streaks, top shows, and top movies.
+- Recommendations from the watch history: movies, shows, the rest of a collection, and shows that return.
 - Add page: search the catalog by title and add a movie or show to the library or the watchlist.
 - Manual actions: mark a movie, an episode, or a whole show watched or unwatched.
-- Web UI with dashboard, movies, shows, watchlist, history, statistics, add page, and a webhook log. The UI needs JavaScript.
+- Web UI with dashboard, movies, shows, recommendations, watchlist, history, statistics, add page, and a webhook log. The UI needs JavaScript.
 - PostgreSQL storage through `sqlx`. The compiler checks every query against the schema. One binary, no runtime dependencies.
 
 ## Architecture
@@ -274,6 +275,7 @@ UUID returns `400 Bad Request`.
 | `POST` | `/api/sync` | Run a Plex library sync. |
 | `GET` | `/api/search?q=` | Catalog search by title. Needs the catalog. Each result carries `localId` when the library has the item. |
 | `POST` | `/api/movies`, `/api/shows` | Add an item. Body: `tmdb_id` or `title`, optional `year` and `watchlist`. |
+| `GET` | `/api/recommendations` | What to watch next, with the taste profile. Needs the catalog. See [How recommendations work](#how-recommendations-work). |
 | `GET` | `/api/watchlist` | Watchlist with watched counts. |
 | `POST` / `DELETE` | `/api/movies/:id/watchlist`, `/api/shows/:id/watchlist` | Add to or remove from the watchlist. |
 | `POST` / `DELETE` | `/api/shows/:id/hidden` | Hide a show from the unwatched list, or unhide it. |
@@ -312,6 +314,35 @@ The `X-Total-Count` response header gives the number of matches before
 
 Item identity: Plex guid, then TMDB id, then TVDB id, then IMDb id, then title and year.
 With a catalog, an episode TMDB id also resolves its show.
+
+## How recommendations work
+
+The recommendations need the catalog. Without it, every list is empty.
+
+There is no rating page. The watch history is the input, and a rating only
+changes a weight when there is one. Watchkeep gives each watched item a weight
+from these signals:
+
+| Signal | Effect on the weight |
+|---|---|
+| A play | The base weight. An item with no play weighs nothing. |
+| A replay | Up to twice the weight. |
+| The part of a show that is watched | A show that was dropped early keeps 20% of the weight. |
+| The age of the last play | Half of the weight after two years, and never less than 30%. |
+| A rating from Plex or from Trakt | A rating above 6.5 lifts the weight, a rating below it cuts the weight. |
+
+The weights add up per genre and per original language. The genres travel by
+name, because TMDB numbers the genres of a movie and of a show apart: your
+taste in "Drama" therefore applies to both. The catalog then scores its own
+items against that vector, times the Bayesian TMDB rating, plus a lift for a
+language that you watch often. The page shows the best of four lists:
+
+- **Movies for you** and **Shows for you**: the closest match to your genres.
+- **Next in a collection**: a movie of a collection that your library holds a part of.
+- **Returning shows**: a show of your library that is complete and still makes episodes.
+
+Everything that the library already holds stays out of the lists, so a
+recommendation is always new.
 
 ## Development
 

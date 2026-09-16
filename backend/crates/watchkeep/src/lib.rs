@@ -10,6 +10,7 @@ pub mod config;
 pub mod csrf;
 pub mod http;
 pub mod plex;
+pub mod recommend;
 pub mod scrobble;
 pub mod telemetry;
 pub mod trakt;
