@@ -487,6 +487,19 @@ impl Scrobbler {
         Ok((position, duration, existing))
     }
 
+    /// The answer for an event that is older than the position that the item already has.
+    fn stale_result(target: &ResolvedTarget, stored: &ProgressRow) -> ScrobbleResult {
+        let position = stored.position();
+        ScrobbleResult {
+            action: ScrobbleAction::StaleEvent,
+            target_kind: target.kind,
+            target_id: Some(target.id),
+            title: target.title.clone(),
+            position_ms: Some(to_millis(position)),
+            percent: percent_of(position, stored.duration()),
+        }
+    }
+
     /// Save the position. Senders retry, so an event that is older than the
     /// stored position leaves the position alone.
     async fn scrobble_progress<C: DerefMut<Target = PgConnection>>(
@@ -499,15 +512,7 @@ impl Scrobbler {
         let (position, duration, existing) =
             Self::scrobble_playback(library, event, target).await?;
         if let Some(stored) = existing.filter(|stored| event.occurred_at < stored.updated_at) {
-            let position = stored.position();
-            return Ok(ScrobbleResult {
-                action: ScrobbleAction::StaleEvent,
-                target_kind: target.kind,
-                target_id: Some(target.id),
-                title: target.title.clone(),
-                position_ms: Some(to_millis(position)),
-                percent: percent_of(position, stored.duration()),
-            });
+            return Ok(Self::stale_result(target, &stored));
         }
         library
             .set_progress(ProgressInput {
@@ -549,7 +554,8 @@ impl Scrobbler {
     }
 
     /// Record a play under the id of the event. The unique index on
-    /// `(source, external_id)` makes a second delivery a no-op.
+    /// `(source, external_id)` makes a second delivery a no-op. A play clears
+    /// the position, so a late event leaves a newer position alone as well.
     async fn scrobble_play<C: DerefMut<Target = PgConnection>>(
         &self,
         library: &mut Library<C>,
@@ -572,14 +578,26 @@ impl Scrobbler {
         {
             return Ok(result(ScrobbleAction::DuplicateEvent));
         }
+        if let Some(stored) = library
+            .get_progress(target.kind, target.id)
+            .await?
+            .filter(|stored| event.occurred_at < stored.updated_at)
+        {
+            return Ok(Self::stale_result(target, &stored));
+        }
         let played_at = event.played_at();
-        let last = library.last_play(target.kind, target.id).await?;
+        // The window looks both ways, because the sender can deliver an older
+        // play after a newer one. A one-sided check would let a retry through.
+        let duplicate = library
+            .play_near(
+                target.kind,
+                target.id,
+                played_at,
+                self.config.rewatch_window,
+            )
+            .await?
+            .is_some();
         library.clear_progress(target.kind, target.id).await?;
-        let duplicate = last.is_some_and(|play| {
-            (played_at - play.watched_at)
-                .to_std()
-                .is_ok_and(|since| since < self.config.rewatch_window)
-        });
         if duplicate {
             return Ok(result(ScrobbleAction::DuplicatePlay));
         }

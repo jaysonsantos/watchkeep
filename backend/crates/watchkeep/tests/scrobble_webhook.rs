@@ -208,6 +208,81 @@ async fn an_older_event_does_not_replace_a_newer_position() -> Result<()> {
 }
 
 #[tokio::test]
+async fn a_late_play_keeps_a_newer_position() -> Result<()> {
+    let t = test_context(|_| {}, false).await?;
+    let app = t.app();
+    let (_, body) = call(
+        &app,
+        scrobble_request(&scrobble_movie(json!({
+            "occurred_at": "2026-01-01T13:00:00Z",
+            "position_ms": 600_000,
+        }))),
+    )
+    .await;
+    let movie = body["targetId"].as_str().expect("an id").parse()?;
+
+    // The sender delivers a watched event of the earlier play after the retry.
+    let mut late = scrobble_movie(json!({
+        "event": "watched",
+        "occurred_at": "2026-01-01T12:10:00Z",
+        "position_ms": null,
+    }));
+    late["event_id"] = other_id()["event_id"].clone();
+    let (status, body) = call(&app, scrobble_request(&late)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["action"], "stale-event");
+    let mut library = t.library().await?;
+    assert_eq!(library.play_count(TargetKind::Movie, movie).await?, 0);
+    let progress = library
+        .get_progress(TargetKind::Movie, movie)
+        .await?
+        .expect("the newer position stays");
+    assert_eq!(progress.position(), Duration::from_secs(600));
+    assert_eq!(progress.updated_at, at("2026-01-01T13:00:00Z"));
+    drop(library);
+    t.close().await
+}
+
+#[tokio::test]
+async fn a_retry_of_a_suppressed_play_stays_suppressed() -> Result<()> {
+    let t = test_context(|_| {}, false).await?;
+    let app = t.app();
+    let watched = |id: &str, occurred_at: &str| {
+        scrobble_request(&scrobble_movie(json!({
+            "event_id": id,
+            "event": "watched",
+            "occurred_at": occurred_at,
+            "position_ms": null,
+        })))
+    };
+    let first = "01926f3b-1c2d-7e3f-8a4b-5c6d7e8f9a0b";
+    let inside = "01926f3c-2d3e-7f40-9b5c-6d7e8f9a0b1c";
+    let later = "01926f3d-3e4f-7051-8c6d-7e8f9a0b1c2d";
+
+    let (_, body) = call(&app, watched(first, "2026-01-01T12:00:00Z")).await;
+    assert_eq!(body["action"], "play");
+    let movie = body["targetId"].as_str().expect("an id").parse()?;
+
+    // The rewatch window is 360 minutes, so this event adds no play.
+    let (_, body) = call(&app, watched(inside, "2026-01-01T13:00:00Z")).await;
+    assert_eq!(body["action"], "duplicate-play");
+
+    // A real second play, far outside the window.
+    let (_, body) = call(&app, watched(later, "2026-01-03T12:00:00Z")).await;
+    assert_eq!(body["action"], "play");
+
+    // The sender retries the suppressed event. It must stay suppressed, even
+    // though the newest play is now younger than the event.
+    let (status, body) = call(&app, watched(inside, "2026-01-01T13:00:00Z")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["action"], "duplicate-play");
+    let mut library = t.library().await?;
+    assert_eq!(library.play_count(TargetKind::Movie, movie).await?, 2);
+    drop(library);
+    t.close().await
+}
+
+#[tokio::test]
 async fn the_body_duration_wins_over_the_catalog_runtime() -> Result<()> {
     let t = test_context(|config| config.watched_threshold_percent = 85.0, true).await?;
     let app = t.app();
@@ -371,6 +446,29 @@ async fn refuses_bodies_that_cannot_be_applied() -> Result<()> {
         status,
         StatusCode::UNPROCESSABLE_ENTITY,
         "no ids and no title"
+    );
+
+    let (status, _) = call(
+        &app,
+        scrobble_request(&json!({
+            "event_id": "01926f3b-1c2d-7e3f-8a4b-5c6d7e8f9a0b",
+            "event": "watched",
+            "occurred_at": common::START,
+            "client": "my-media-server",
+            "media": {
+                "type": "episode",
+                "season": 1,
+                "number": 1,
+                "ids": { "tmdb": 1982925 },
+                "show": {}
+            }
+        })),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "the show has no ids and no title"
     );
     assert!(
         t.queries.recent_webhooks(50).await?[0]

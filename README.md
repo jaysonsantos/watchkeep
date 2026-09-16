@@ -142,7 +142,7 @@ The token also goes into the `x-webhook-token` header. The body is
 | `media.type` | yes | `movie` or `episode`. |
 | `media.title`, `media.year` | no | The identity when no id matches. |
 | `media.ids` | no | `tmdb`, `imdb`, and `tvdb` of the movie or of the episode. |
-| `media.show` | for episodes | `title`, `year`, and `ids` of the show. |
+| `media.show` | for episodes | `title`, `year`, and `ids` of the show. The show needs a title or an id of its own. |
 | `media.season`, `media.number` | for episodes | Season and episode number in TMDB order. |
 | `position_ms` | for `start`, `progress`, `pause`, `stop` | The playback position. |
 | `duration_ms` | no | The runtime that the player measured. It wins over the catalog runtime. |
@@ -168,10 +168,12 @@ The status code tells the sender what to do next:
 | `422` | The event has no ids and no title, so no item can match. | Remove the event. Do not retry. |
 | `5xx` | A database or server error. | Retry later with the same `event_id`. |
 
-Two rules make retries safe. A play carries its `event_id`, so a second
+Three rules make retries safe. A play carries its `event_id`, so a second
 delivery of the same event adds no second play and answers with the action
 `duplicate-event`. An event that is older than the stored position leaves the
-position alone and answers with `stale-event`.
+position alone and answers with `stale-event`. A play inside
+`WATCHKEEP_REWATCH_WINDOW_MINUTES` of a play that the item already has answers
+with `duplicate-play`, whether it is older or newer than that play.
 
 Set `WATCHKEEP_SCROBBLE_ACCOUNTS` to a comma-separated list of `account` values
 to accept only some viewers. The Webhooks page shows every event under the name

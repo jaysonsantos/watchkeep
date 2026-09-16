@@ -446,6 +446,31 @@ impl<C: DerefMut<Target = PgConnection>> Library<C> {
         .await?)
     }
 
+    /// A play of the item inside `window` around `at`. Senders deliver events out
+    /// of order, so the window looks forward and backward. A zero window matches nothing.
+    pub async fn play_near(
+        &mut self,
+        kind: TargetKind,
+        id: Uuid,
+        at: DateTime<Utc>,
+        window: Duration,
+    ) -> Result<Option<PlayRow>> {
+        let window = chrono::Duration::from_std(window)?;
+        Ok(sqlx::query_as!(
+            PlayRow,
+            r#"SELECT id, target_kind AS "target_kind: TargetKind", target_id, watched_at, source, account, player, external_id
+               FROM plays
+               WHERE target_kind = $1 AND target_id = $2 AND watched_at > $3 AND watched_at < $4
+               ORDER BY watched_at DESC LIMIT 1"#,
+            kind.as_str(),
+            id,
+            at - window,
+            at + window
+        )
+        .fetch_optional(self.conn())
+        .await?)
+    }
+
     /// Insert a play. With `external_id`, a play that already exists for the same
     /// source and id is skipped and `None` is returned.
     pub async fn record_play(&mut self, input: PlayInput) -> Result<Option<PlayRow>> {

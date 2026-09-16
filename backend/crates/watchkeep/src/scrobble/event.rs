@@ -60,7 +60,8 @@ pub enum InvalidEvent {
     /// The event needs a field that the body does not have.
     #[error("{0} is required")]
     Missing(&'static str),
-    /// The body has no ids and no title, so no item can match.
+    /// The body has no ids and no title, so no item can match. An episode
+    /// needs the ids or the title of its show.
     #[error("the event has no ids and no title")]
     Unidentified,
 }
@@ -186,7 +187,11 @@ impl ScrobbleMedia {
                 let number = self.number.ok_or(InvalidEvent::Missing(field::NUMBER))?;
                 let show_ids = show.ids.external();
                 let show_title = trimmed(show.title.as_deref());
-                if show_ids.is_empty() && show_title.is_empty() && ids.is_empty() {
+                // The show needs an identity of its own. The ids of the episode
+                // reach the show through the catalog only, and the catalog is
+                // optional, so a blank show would collapse every such episode
+                // onto one media row.
+                if show_ids.is_empty() && show_title.is_empty() {
                     return Err(InvalidEvent::Unidentified);
                 }
                 Ok(MediaRef::Episode(EpisodeRef {
