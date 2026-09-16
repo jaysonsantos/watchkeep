@@ -240,7 +240,7 @@ to see every query of a request in its span.
 | `watchkeep_http_active_requests` | requests | `http.method`, `http.route`, `otel.kind` |
 | `watchkeep_webhook_events_total` | events | `plex_event`, `webhook_outcome` |
 | `watchkeep_scrobble_events_total` | events | `plex_event`, `scrobble_action` |
-| `watchkeep_plex_sync_runs_total`, `watchkeep_plex_sync_duration_ms` | runs, ms | none |
+| `watchkeep_plex_sync_runs_total`, `watchkeep_plex_sync_duration_ms` | runs, ms | `sync_status` |
 | `watchkeep_trakt_imports_total`, `watchkeep_trakt_import_duration_ms` | runs, ms | none |
 
 ## Security

@@ -23,6 +23,11 @@ const SPAN_NAME: &str = "watchkeep_http";
 /// the web UI. A path would raise the cardinality of the metrics.
 const UNMATCHED_ROUTE: &str = "unmatched";
 
+/// The methods that get their own label. Every other method is `OTHER_METHOD`,
+/// so that a request with a rare method cannot raise the cardinality.
+const KNOWN_METHODS: [&str; 7] = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"];
+const OTHER_METHOD: &str = "other";
+
 /// The `status` label: an answer below 500 did what the caller asked.
 const STATUS_SUCCESS: &str = "success";
 const STATUS_ERROR: &str = "error";
@@ -153,7 +158,7 @@ pub async fn trace_request(
     }
 
     let mut labels = vec![
-        KeyValue::new(label::METHOD, method),
+        KeyValue::new(label::METHOD, method_label(&method)),
         KeyValue::new(label::ROUTE, route),
         KeyValue::new(label::KIND, SERVER_KIND),
     ];
@@ -189,6 +194,14 @@ impl Drop for ActiveRequest {
     fn drop(&mut self) {
         self.counter.add(-1, &self.labels);
     }
+}
+
+/// The label of a method: the method itself when it is a known one, else `other`.
+fn method_label(method: &str) -> &'static str {
+    KNOWN_METHODS
+        .into_iter()
+        .find(|known| *known == method)
+        .unwrap_or(OTHER_METHOD)
 }
 
 /// `error` for an answer that the server could not produce, else `success`.

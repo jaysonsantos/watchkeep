@@ -38,6 +38,10 @@ mod header {
 
 const SECTIONS_PATH: &str = "/library/sections";
 
+/// The `sync_status` label of the run metrics.
+const SYNC_SUCCESS: &str = "success";
+const SYNC_ERROR: &str = "error";
+
 /// Items per page of the library API.
 pub const DEFAULT_PAGE_SIZE: usize = 500;
 
@@ -254,10 +258,31 @@ pub async fn sync_plex_library(
     options: &SyncOptions,
     clock: SharedClock,
 ) -> Result<SyncReport> {
+    // The metrics belong to the run, not to a successful run: a timer that
+    // fails every time must look different from a timer that does not run.
+    let started = Instant::now();
+    let result = run_sync(pool, catalog, options, clock).await;
+    tracing::info!(
+        monotonic_counter.watchkeep_plex_sync_runs_total = 1_u64,
+        histogram.watchkeep_plex_sync_duration_ms = milliseconds(started.elapsed()),
+        sync_status = if result.is_ok() {
+            SYNC_SUCCESS
+        } else {
+            SYNC_ERROR
+        },
+    );
+    result
+}
+
+async fn run_sync(
+    pool: &PgPool,
+    catalog: Option<&Catalog>,
+    options: &SyncOptions,
+    clock: SharedClock,
+) -> Result<SyncReport> {
     if options.plex_url.is_empty() || options.plex_token.is_empty() {
         bail!("Plex sync needs WATCHKEEP_PLEX_URL and WATCHKEEP_PLEX_TOKEN");
     }
-    let started = Instant::now();
     let client = PlexClient::new(options.clone());
     let mut report = SyncReport::default();
 
@@ -415,10 +440,6 @@ pub async fn sync_plex_library(
     span.record("sync.episodes", report.episodes);
     span.record("sync.plays_imported", report.plays_imported);
     span.record("sync.progress_imported", report.progress_imported);
-    tracing::info!(
-        monotonic_counter.watchkeep_plex_sync_runs_total = 1_u64,
-        histogram.watchkeep_plex_sync_duration_ms = milliseconds(started.elapsed()),
-    );
     tracing::info!(
         "sync: {} movies, {} shows, {} episodes, {} plays and {} positions imported",
         report.movies,
