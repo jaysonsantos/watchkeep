@@ -509,6 +509,27 @@ impl Scrobbler {
         target: &ResolvedTarget,
         state: PlayState,
     ) -> Result<ScrobbleResult> {
+        // The same rule as the Plex path: a position must not re-open an item
+        // that a play of this window already finished.
+        if library
+            .play_near(
+                target.kind,
+                target.id,
+                event.occurred_at,
+                self.config.rewatch_window,
+            )
+            .await?
+            .is_some()
+        {
+            return Ok(ScrobbleResult {
+                action: ScrobbleAction::AlreadyWatched,
+                target_kind: target.kind,
+                target_id: Some(target.id),
+                title: target.title.clone(),
+                position_ms: None,
+                percent: None,
+            });
+        }
         let (position, duration, existing) =
             Self::scrobble_playback(library, event, target).await?;
         if let Some(stored) = existing.filter(|stored| event.occurred_at < stored.updated_at) {

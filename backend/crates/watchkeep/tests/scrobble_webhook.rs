@@ -298,12 +298,14 @@ async fn a_late_unwatched_keeps_a_newer_position() -> Result<()> {
     )
     .await;
     let movie = body["targetId"].as_str().expect("an id").parse()?;
+    // A rewatch on the next day, far outside the rewatch window of the play.
     let mut newer = scrobble_movie(json!({
-        "occurred_at": "2026-01-01T13:00:00Z",
+        "occurred_at": "2026-01-02T12:00:00Z",
         "position_ms": 600_000,
     }));
     newer["event_id"] = other_id()["event_id"].clone();
-    call(&app, scrobble_request(&newer)).await;
+    let (_, newer_body) = call(&app, scrobble_request(&newer)).await;
+    assert_eq!(newer_body["action"], "progress");
 
     // The unwatch is older than the position that the item has now.
     let (status, body) = call(
@@ -311,7 +313,7 @@ async fn a_late_unwatched_keeps_a_newer_position() -> Result<()> {
         scrobble_request(&scrobble_movie(json!({
             "event_id": "01926f3d-3e4f-7051-8c6d-7e8f9a0b1c2d",
             "event": "unwatched",
-            "occurred_at": "2026-01-01T12:30:00Z",
+            "occurred_at": "2026-01-01T18:00:00Z",
             "position_ms": null,
         }))),
     )
@@ -426,6 +428,41 @@ async fn the_statements_refuse_to_overwrite_a_newer_position() -> Result<()> {
             .await?
             .is_none(),
         "a clear at the time of the position removes it"
+    );
+    drop(library);
+    t.close().await
+}
+
+#[tokio::test]
+async fn a_position_does_not_re_open_a_watched_item() -> Result<()> {
+    let t = test_context(|_| {}, false).await?;
+    let app = t.app();
+    let (_, body) = call(
+        &app,
+        scrobble_request(&scrobble_movie(json!({
+            "event": "watched",
+            "occurred_at": "2026-01-01T12:00:00Z",
+            "position_ms": null,
+        }))),
+    )
+    .await;
+    let movie = body["targetId"].as_str().expect("an id").parse()?;
+
+    // A late progress of the same play must not put the movie back in progress.
+    let mut late = scrobble_movie(json!({
+        "occurred_at": "2026-01-01T12:05:00Z",
+        "position_ms": 600_000,
+    }));
+    late["event_id"] = other_id()["event_id"].clone();
+    let (status, body) = call(&app, scrobble_request(&late)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["action"], "already-watched");
+    let mut library = t.library().await?;
+    assert!(
+        library
+            .get_progress(TargetKind::Movie, movie)
+            .await?
+            .is_none()
     );
     drop(library);
     t.close().await

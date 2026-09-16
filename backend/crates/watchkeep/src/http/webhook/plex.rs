@@ -100,8 +100,7 @@ pub async fn plex(
 
 /// The work of the webhook. `plex` counts the outcome around it.
 async fn handle(ctx: SharedContext, query: WebhookQuery, request: Request) -> ApiResult {
-    if let Some(denied) = unauthorized(&ctx.config.webhook_token, &query, request.headers())
-    {
+    if let Some(denied) = unauthorized(&ctx.config.webhook_token, &query, request.headers()) {
         count_event(None, OUTCOME_REJECTED);
         return Ok(denied);
     }

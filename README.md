@@ -168,6 +168,10 @@ The status code tells the sender what to do next:
 | `422` | The event has no ids and no title, so no item can match. | Remove the event. Do not retry. |
 | `5xx` | A database or server error. | Retry later with the same `event_id`. |
 
+A position event that arrives after a play of the same window answers
+`already-watched` and writes nothing, so a watched item stays out of the
+in-progress list.
+
 Three rules make retries safe. A play carries its `event_id`, so a second
 delivery of the same event adds no second play and answers with the action
 `duplicate-event`. An event that is older than the stored position leaves the
