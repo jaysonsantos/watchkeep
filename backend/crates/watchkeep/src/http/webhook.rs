@@ -38,6 +38,9 @@ const OUTCOME_REJECTED: &str = "rejected";
 /// The event label of a call that carried no Plex event name.
 const EVENT_NONE: &str = "none";
 
+/// The outcome label of a call that ended in an internal error.
+const OUTCOME_FAILED: &str = "failed";
+
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
 pub struct WebhookQuery {
@@ -131,6 +134,17 @@ async fn plex(
     Query(query): Query<WebhookQuery>,
     request: Request,
 ) -> ApiResult {
+    let result = handle(ctx, query, request).await;
+    // A call that fails counts too, else the counter hides exactly the events
+    // that Watchkeep lost.
+    if result.is_err() {
+        count_event(None, OUTCOME_FAILED);
+    }
+    result
+}
+
+/// The work of the webhook. `plex` counts the outcome around it.
+async fn handle(ctx: SharedContext, query: WebhookQuery, request: Request) -> ApiResult {
     let expected = &ctx.config.webhook_token;
     if !expected.is_empty() {
         let given = query

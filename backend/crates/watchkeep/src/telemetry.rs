@@ -134,7 +134,9 @@ pub async fn trace_request(
         .get::<MatchedPath>()
         .map_or(UNMATCHED_ROUTE, MatchedPath::as_str)
         .to_owned();
-    let name = format!("{method} {route}");
+    // The name of a span groups the traces of a backend, so it takes the bounded
+    // method. The field `http.method` keeps the method as it arrived.
+    let name = format!("{} {route}", method_label(&method));
     let span = tracing::info_span!(
         SPAN_NAME,
         otel.name = %name,
