@@ -276,6 +276,16 @@ impl ScrobbleEvent {
         self.watched_at.unwrap_or(self.occurred_at)
     }
 
+    /// The time this event contributes to the item's ordering watermark.
+    /// A backfilled `watched` event orders by the play, so a later delivery
+    /// cannot hide a newer session.
+    pub fn watermark_at(&self) -> DateTime<Utc> {
+        match self.event {
+            ScrobbleEventName::Watched => self.played_at(),
+            _ => self.occurred_at,
+        }
+    }
+
     /// The device of the play, or the sending application when the sender names no device.
     pub fn device(&self) -> Option<String> {
         non_empty(self.player.as_deref().map(str::trim))

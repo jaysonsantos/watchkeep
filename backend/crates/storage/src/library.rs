@@ -714,8 +714,9 @@ impl<C: DerefMut<Target = PgConnection>> Library<C> {
         .await?)
     }
 
-    /// The newest delivery time retained for an item, including an unwatch
-    /// that removed its progress and plays.
+    /// The newest retained event time for an item, including an unwatch
+    /// that removed its progress and plays. A backfilled watch stores the
+    /// play time, not the delivery time.
     pub async fn last_scrobble_event_at(
         &mut self,
         kind: TargetKind,
@@ -731,7 +732,9 @@ impl<C: DerefMut<Target = PgConnection>> Library<C> {
     }
 
     /// Retain an applied or safely ignored sender event for idempotency and
-    /// event ordering. The target lock serializes inserts for one item.
+    /// event ordering. `occurred_at` is the watermark time: the play of a
+    /// backfilled watch, else the sender time. The target lock serializes
+    /// inserts for one item.
     pub async fn record_scrobble_event(
         &mut self,
         event_id: Uuid,

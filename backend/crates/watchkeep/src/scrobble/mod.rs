@@ -548,7 +548,7 @@ impl Scrobbler {
                         event.event_id,
                         target.kind,
                         target.id,
-                        event.occurred_at,
+                        event.watermark_at(),
                     )
                     .await?;
             }

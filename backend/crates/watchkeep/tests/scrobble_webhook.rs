@@ -586,6 +586,50 @@ async fn backfilling_a_play_keeps_progress_from_a_later_session() -> Result<()> 
 }
 
 #[tokio::test]
+async fn a_late_backfill_does_not_hide_later_progress() -> Result<()> {
+    let t = test_context(|_| {}, false).await?;
+    let app = t.app();
+    let (_, progress) = call(
+        &app,
+        scrobble_request(&scrobble_movie(json!({
+            "occurred_at": "2026-01-02T12:00:00Z",
+            "position_ms": 600_000,
+        }))),
+    )
+    .await;
+    let movie = progress["targetId"].as_str().expect("an id").parse()?;
+
+    let mut backfill = scrobble_movie(json!({
+        "event": "watched",
+        "occurred_at": "2026-01-03T12:00:00Z",
+        "watched_at": "2026-01-01T12:00:00Z",
+        "position_ms": null,
+    }));
+    backfill["event_id"] = other_id()["event_id"].clone();
+    let (_, body) = call(&app, scrobble_request(&backfill)).await;
+    assert_eq!(body["action"], "play");
+
+    let mut later = scrobble_movie(json!({
+        "occurred_at": "2026-01-02T18:00:00Z",
+        "position_ms": 700_000,
+    }));
+    later["event_id"] = json!("01926f3d-3e4f-7051-8c6d-7e8f9a0b1c2d");
+    let (status, body) = call(&app, scrobble_request(&later)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["action"], "progress");
+    let mut library = t.library().await?;
+    assert_eq!(library.play_count(TargetKind::Movie, movie).await?, 1);
+    let stored = library
+        .get_progress(TargetKind::Movie, movie)
+        .await?
+        .expect("the later position of the session stays");
+    assert_eq!(stored.position(), Duration::from_secs(700));
+    assert_eq!(stored.updated_at, at("2026-01-02T18:00:00Z"));
+    drop(library);
+    t.close().await
+}
+
+#[tokio::test]
 async fn refuses_a_position_that_is_not_a_position() -> Result<()> {
     let t = test_context(|config| config.watched_threshold_percent = 85.0, false).await?;
     let app = t.app();
