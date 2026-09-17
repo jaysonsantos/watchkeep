@@ -10,14 +10,23 @@ on:
 permissions:
   contents: read
 
+# A new push on the same ref cancels the older run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  check:
+  # The linters need no database, so they run beside the tests.
+  lint:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v5
 
       - uses: DeterminateSystems/nix-installer-action@main
 
+      # The Biome and the svelte-check hooks read node_modules.
       - name: Install the frontend packages
         run: nix develop --command pnpm install --frozen-lockfile
 
