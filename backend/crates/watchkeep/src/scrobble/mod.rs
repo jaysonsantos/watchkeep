@@ -534,7 +534,15 @@ impl Scrobbler {
                     }
                 }
             };
-            if result.action != ScrobbleAction::DuplicateEvent {
+            let retain_event = matches!(
+                event.event,
+                ScrobbleEventName::Watched | ScrobbleEventName::Unwatched
+            ) || (event.event == ScrobbleEventName::Stop
+                && matches!(
+                    result.action,
+                    ScrobbleAction::Play | ScrobbleAction::DuplicatePlay
+                ));
+            if retain_event && result.action != ScrobbleAction::DuplicateEvent {
                 library
                     .record_scrobble_event(
                         event.event_id,
