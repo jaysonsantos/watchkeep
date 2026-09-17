@@ -176,6 +176,30 @@ async fn the_same_event_id_adds_one_play() -> Result<()> {
 }
 
 #[tokio::test]
+async fn a_retried_event_does_not_rewrite_the_title() -> Result<()> {
+    let t = test_context(|_| {}, false).await?;
+    let app = t.app();
+    let watched = scrobble_movie(json!({ "event": "watched", "position_ms": null }));
+    let (_, first) = call(&app, scrobble_request(&watched)).await;
+    assert_eq!(first["action"], "play");
+    let movie = first["targetId"].as_str().expect("an id").parse()?;
+
+    let mut retry = watched;
+    retry["media"]["title"] = json!("Not Heat");
+    let (status, body) = call(&app, scrobble_request(&retry)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["action"], "duplicate-event");
+    let mut library = t.library().await?;
+    let stored = library
+        .get_media(movie)
+        .await?
+        .expect("the movie of the first delivery");
+    assert_eq!(stored.title, "Heat");
+    drop(library);
+    t.close().await
+}
+
+#[tokio::test]
 async fn an_older_event_does_not_replace_a_newer_position() -> Result<()> {
     let t = test_context(|_| {}, false).await?;
     let app = t.app();

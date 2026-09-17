@@ -36,7 +36,7 @@ pub(super) const OUTCOME_FAILED: &str = "failed";
 pub(super) fn count_event(event: Option<&str>, outcome: &str) {
     tracing::info!(
         monotonic_counter.watchkeep_webhook_events_total = 1_u64,
-        webhook_event = event.unwrap_or(EVENT_NONE),
+        plex_event = event.unwrap_or(EVENT_NONE),
         webhook_outcome = outcome,
     );
 }

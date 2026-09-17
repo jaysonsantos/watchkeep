@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT target_kind AS \"target_kind: TargetKind\", target_id\n               FROM scrobble_events WHERE event_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "target_kind: TargetKind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "scrobble_events",
+            "name": "target_kind"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "target_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "scrobble_events",
+            "name": "target_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "8330703efce9250e48f7f34dc229afbff35fac8e5a6a13ff543cff573cd78776"
+}

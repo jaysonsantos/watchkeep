@@ -704,14 +704,20 @@ impl<C: DerefMut<Target = PgConnection>> Library<C> {
 
     // region: generic scrobble events
 
-    /// True when this sender event committed before.
-    pub async fn scrobble_event_exists(&mut self, event_id: Uuid) -> Result<bool> {
-        Ok(sqlx::query_scalar!(
-            r#"SELECT EXISTS(SELECT 1 FROM scrobble_events WHERE event_id = $1) AS "exists!""#,
+    /// The item a retained sender event already applied to, if this `event_id`
+    /// committed before.
+    pub async fn scrobble_event_target(
+        &mut self,
+        event_id: Uuid,
+    ) -> Result<Option<(TargetKind, Uuid)>> {
+        Ok(sqlx::query!(
+            r#"SELECT target_kind AS "target_kind: TargetKind", target_id
+               FROM scrobble_events WHERE event_id = $1"#,
             event_id
         )
-        .fetch_one(self.conn())
-        .await?)
+        .fetch_optional(self.conn())
+        .await?
+        .map(|row| (row.target_kind, row.target_id)))
     }
 
     /// The newest retained event time for an item, including an unwatch
