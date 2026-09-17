@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT m.id, m.imdb_id, m.title_en, m.title_pt, m.original_title, m.release_date,\n                      m.runtime::int AS runtime, m.poster_path_en, m.poster_path_pt,\n                      m.overview_en, m.overview_pt,\n                      m.collection_id AS \"collection_id!\", c.name_en, c.name_pt,\n                      COALESCE(m.weighted_rating, 0.0) AS \"quality!\"\n               FROM tmdb_movie m JOIN collection c ON c.id = m.collection_id\n               WHERE m.collection_id = ANY($1) AND NOT (m.id = ANY($2))\n                 AND m.release_date IS NOT NULL AND m.release_date <= $3\n                 AND m.adult IS NOT TRUE\n               ORDER BY m.release_date, m.id\n               LIMIT $4",
+  "query": "WITH ranked AS (\n                 SELECT m.id, m.imdb_id, m.title_en, m.title_pt, m.original_title, m.release_date,\n                        m.runtime::int AS runtime, m.poster_path_en, m.poster_path_pt,\n                        m.overview_en, m.overview_pt,\n                        m.collection_id, c.name_en, c.name_pt,\n                        COALESCE(m.weighted_rating, 0.0) AS quality,\n                        ROW_NUMBER() OVER (\n                          PARTITION BY m.collection_id\n                          ORDER BY COALESCE(m.weighted_rating, 0.0) DESC, m.release_date, m.id\n                        ) AS rn\n                 FROM tmdb_movie m JOIN collection c ON c.id = m.collection_id\n                 WHERE m.collection_id = ANY($1) AND NOT (m.id = ANY($2))\n                   AND m.release_date IS NOT NULL AND m.release_date <= $3\n                   AND m.adult IS NOT TRUE\n               )\n               SELECT id, imdb_id, title_en, title_pt, original_title, release_date,\n                      runtime, poster_path_en, poster_path_pt, overview_en, overview_pt,\n                      collection_id AS \"collection_id!\", name_en, name_pt,\n                      quality AS \"quality!\"\n               FROM ranked\n               WHERE rn <= $5\n               ORDER BY release_date, id\n               LIMIT $4",
   "describe": {
     "columns": [
       {
@@ -164,6 +164,7 @@
         "Int8Array",
         "Int8Array",
         "Text",
+        "Int8",
         "Int8"
       ]
     },
@@ -185,5 +186,5 @@
       null
     ]
   },
-  "hash": "3d047d6dd45b9b868c8f60c3d1b31d7a257a564d5d6bb451c8c2acf9ef73aefd"
+  "hash": "7cf19cc19c33293280e36ec024a10f07579115072e56a6ee5f5587e2f1ab5a79"
 }

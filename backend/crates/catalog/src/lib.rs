@@ -1020,33 +1020,51 @@ impl Catalog {
     }
 
     /// Released movies of the given collections that the library does not have.
+    /// `max_per_collection` caps every collection before `limit` cuts the rows,
+    /// so that a collection with many missing parts leaves the others in. The
+    /// cap keeps the best rated parts: the caller weighs every part of one
+    /// collection the same, so the rating alone orders them there too.
     pub async fn collection_movies(
         &self,
         collection_ids: &[i64],
         exclude: &[i64],
         today: NaiveDate,
         limit: i64,
+        max_per_collection: i64,
     ) -> Result<Vec<CollectionMovie>> {
         if collection_ids.is_empty() {
             return Ok(Vec::new());
         }
         let today = today.format(DATE_FORMAT).to_string();
         let rows = sqlx::query!(
-            r#"SELECT m.id, m.imdb_id, m.title_en, m.title_pt, m.original_title, m.release_date,
-                      m.runtime::int AS runtime, m.poster_path_en, m.poster_path_pt,
-                      m.overview_en, m.overview_pt,
-                      m.collection_id AS "collection_id!", c.name_en, c.name_pt,
-                      COALESCE(m.weighted_rating, 0.0) AS "quality!"
-               FROM tmdb_movie m JOIN collection c ON c.id = m.collection_id
-               WHERE m.collection_id = ANY($1) AND NOT (m.id = ANY($2))
-                 AND m.release_date IS NOT NULL AND m.release_date <= $3
-                 AND m.adult IS NOT TRUE
-               ORDER BY m.release_date, m.id
+            r#"WITH ranked AS (
+                 SELECT m.id, m.imdb_id, m.title_en, m.title_pt, m.original_title, m.release_date,
+                        m.runtime::int AS runtime, m.poster_path_en, m.poster_path_pt,
+                        m.overview_en, m.overview_pt,
+                        m.collection_id, c.name_en, c.name_pt,
+                        COALESCE(m.weighted_rating, 0.0) AS quality,
+                        ROW_NUMBER() OVER (
+                          PARTITION BY m.collection_id
+                          ORDER BY COALESCE(m.weighted_rating, 0.0) DESC, m.release_date, m.id
+                        ) AS rn
+                 FROM tmdb_movie m JOIN collection c ON c.id = m.collection_id
+                 WHERE m.collection_id = ANY($1) AND NOT (m.id = ANY($2))
+                   AND m.release_date IS NOT NULL AND m.release_date <= $3
+                   AND m.adult IS NOT TRUE
+               )
+               SELECT id, imdb_id, title_en, title_pt, original_title, release_date,
+                      runtime, poster_path_en, poster_path_pt, overview_en, overview_pt,
+                      collection_id AS "collection_id!", name_en, name_pt,
+                      quality AS "quality!"
+               FROM ranked
+               WHERE rn <= $5
+               ORDER BY release_date, id
                LIMIT $4"#,
             collection_ids,
             exclude,
             today,
-            limit
+            limit,
+            max_per_collection
         )
         .fetch_all(&self.pool)
         .await?;

@@ -95,6 +95,22 @@ async fn seed_flood(pool: &PgPool) -> Result<()> {
     Ok(())
 }
 
+/// One more movie of one collection than `CANDIDATE_LIMIT`, all released before
+/// every other movie of a collection, so a query that takes the first
+/// `CANDIDATE_LIMIT` rows never sees a second collection. See
+/// `seed_recommendations` for why these statements are plain SQL.
+async fn seed_collection_flood(pool: &PgPool) -> Result<()> {
+    let extra = CANDIDATE_LIMIT + 1;
+    sqlx::raw_sql(AssertSqlSafe(format!(
+        "INSERT INTO tmdb_movie (id, title_en, release_date, vote_count, vote_average, original_language, collection_id, fetched_at, raw_json)
+         SELECT 3000 + g, 'Early ' || g, '1900-01-01', 1200, 5.0, 'en', 1000, 0, '{{}}'
+         FROM generate_series(0, {extra} - 1) AS g;"
+    )))
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 /// A Portuguese profile, and one Portuguese candidate of each kind that three
 /// English ones of the same genre group outrank on the rating alone. See
 /// `seed_recommendations` for why these statements are plain SQL.
@@ -113,6 +129,29 @@ async fn seed_language(pool: &PgPool) -> Result<()> {
     ))
     .execute(pool)
     .await?;
+    Ok(())
+}
+
+/// Add a movie of the catalog to the library and mark it watched, so that its
+/// collection counts as taste.
+async fn watch_movie(t: &TestContext, tmdb_id: i64) -> Result<()> {
+    let (status, movie) = call(
+        &t.app(),
+        json_request(Method::POST, "/api/movies", &json!({ "tmdb_id": tmdb_id })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let movie_id: Uuid = id_of(&movie);
+    let (status, _) = call(
+        &t.app(),
+        json_request(
+            Method::POST,
+            &format!("/api/movies/{movie_id}/watched"),
+            &json!({}),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
     Ok(())
 }
 
@@ -293,29 +332,40 @@ async fn caps_the_movies_of_one_collection() -> Result<()> {
         )))
         .await?;
     // A watched movie of the second collection, so that both count as taste.
-    let (status, movie) = call(
-        &t.app(),
-        json_request(Method::POST, "/api/movies", &json!({ "tmdb_id": 713 })),
-    )
-    .await;
-    assert_eq!(status, StatusCode::CREATED);
-    let movie_id: Uuid = id_of(&movie);
-    let (status, _) = call(
-        &t.app(),
-        json_request(
-            Method::POST,
-            &format!("/api/movies/{movie_id}/watched"),
-            &json!({}),
-        ),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
+    watch_movie(&t, 713).await?;
 
     let (_, body) = get(&t.app(), PATH).await;
     assert_eq!(
         tmdb_ids(&body["nextInCollection"]),
         vec![4638, 700, 710, 711],
         "the two best of each collection, best first"
+    );
+    t.close().await
+}
+
+/// The collection query used to cut to `CANDIDATE_LIMIT` before the list cap,
+/// so one collection with many missing parts could hide every other collection
+/// past that cut.
+#[tokio::test]
+async fn keeps_a_second_collection_past_the_candidate_limit() -> Result<()> {
+    let t = test_context(|_| {}, true).await?;
+    let catalog = t.catalog_pool.as_ref().expect("a catalog pool");
+    seed_recommendations(catalog).await?;
+    seed_crowd(catalog).await?;
+    seed_collection_flood(catalog).await?;
+    t.scrobbler
+        .apply(&event(&movie_payload(
+            json!({ "event": "media.scrobble" }),
+            json!({}),
+        )))
+        .await?;
+    watch_movie(&t, 713).await?;
+
+    let (_, body) = get(&t.app(), PATH).await;
+    assert_eq!(
+        tmdb_ids(&body["nextInCollection"]),
+        vec![4638, 700, 710, 711],
+        "the second collection sits past {CANDIDATE_LIMIT} parts of the first"
     );
     t.close().await
 }

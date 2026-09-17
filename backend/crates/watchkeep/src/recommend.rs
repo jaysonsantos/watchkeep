@@ -444,7 +444,13 @@ impl Recommender {
         // query so a per-group cap there is not spent on a row that this list
         // will drop.
         let collection_movies = catalog
-            .collection_movies(&collection_ids, &taste.movie_ids, today, CANDIDATE_LIMIT)
+            .collection_movies(
+                &collection_ids,
+                &taste.movie_ids,
+                today,
+                CANDIDATE_LIMIT,
+                MAX_PER_COLLECTION as i64,
+            )
             .await?;
         let next_in_collection = self.collection_list(collection_movies, &taste);
         let mut movie_exclude = taste.movie_ids.clone();
