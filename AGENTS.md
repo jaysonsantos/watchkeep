@@ -20,7 +20,7 @@ The Rust sources live in `backend/crates/` and the SvelteKit sources in `fronten
 | `frontend/src/lib/api.ts` | The API client. `ActionName` lists the buttons of the UI. |
 | `frontend/src/lib/generated/` | The API types, written by ts-rs from the Rust structs. Do not edit. |
 | `frontend/src/lib/types.ts` | Re-exports the generated types. `Id` is the UUID string type. |
-| `.github/workflows/` | `ci.yml` runs the linters and the tests. `release.yml` builds and pushes the image on a `v*` tag, then publishes the GitHub release. |
+| `.github/workflows/` | `ci.yml` runs the linters and the tests. `release.yml` makes the tag on a manual run, and builds the image and publishes the GitHub release on a manual run or on a `v*` tag. |
 | `frontend/src/lib/lists.ts`, `frontend/src/lib/format.ts` | List state (query keys in `QUERY`) and display helpers. |
 | `frontend/src/lib/stats.ts` | The time zone of the browser and the small computations of the statistics page. |
 | `catalog/schema.sql` | The contract of the central TMDB database: the tables that a mirror tool fills and that Watchkeep reads. Its integer columns are `bigint`; the catalog crate casts the small ones to `int` in SQL. |
@@ -58,7 +58,9 @@ The Rust sources live in `backend/crates/` and the SvelteKit sources in `fronten
 - Spawn with `spawn!(name, future)`, never `tokio::spawn`. Give the task the span of the caller with `.instrument(Span::current())` or a new `info_span!`.
 - A test that exercises the server starts the same layers with `init_goodies()`. `test_context` does it; a test that builds no context calls it itself (`tests/migrations.rs`). A test of a pure function, for example `tests/payload.rs`, needs no telemetry: it holds no span and makes no call.
 - A release is a `v*` tag. The workflow cross-compiles the arm64 binary inside the Dockerfile (`--platform=$BUILDPLATFORM`, `TARGETARCH`), pushes a multi-arch image to GHCR, and publishes the GitHub release with the message of the annotated tag.
-- Make a release only with `scripts/release.sh`, then `git push --follow-tags`. The script takes the version from the Conventional Commits with git-cliff (`cliff.toml`), writes it into `Cargo.toml` and `package.json`, and regenerates `CHANGELOG.md`. Never edit `CHANGELOG.md` and never write a version number by hand.
+- Start a release with the `Release` workflow (`gh workflow run Release`, or the Actions page), with an optional `version` input. The `tag` job runs `scripts/release.sh` on the runner and pushes the release commit and the tag. The `image` and `release` jobs take the tag from the output of that job, not from the ref, because a manual run starts on a branch.
+- The same release also runs from a machine: `scripts/release.sh`, then `git push --follow-tags`. Use that way when a rule protects `main`.
+- The script takes the version from the Conventional Commits with git-cliff (`cliff.toml`), writes it into `Cargo.toml` and `package.json`, and regenerates `CHANGELOG.md`. Never edit `CHANGELOG.md` and never write a version number by hand.
 
 ## Plex facts
 

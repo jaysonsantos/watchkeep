@@ -1,22 +1,82 @@
-# A version tag (v1.2.3) builds the image for linux/amd64 and linux/arm64 and pushes
-# it to GHCR as ghcr.io/<owner>/watchkeep:1.2.3, :1.2, and :latest. It then publishes
-# the GitHub release with the notes that `scripts/release.sh` wrote into the tag.
+# A release starts in one of two ways: a manual run of this workflow, or a version
+# tag (v1.2.3) pushed from a local `scripts/release.sh`. A manual run makes the
+# release commit and the tag first, with the version from the Conventional Commits.
+# The workflow then builds the image for linux/amd64 and linux/arm64 and pushes it
+# to GHCR as ghcr.io/<owner>/watchkeep:1.2.3, :1.2, and :latest, and publishes the
+# GitHub release with the notes that the tag carries.
 # The Dockerfile cross-compiles the arm64 binary, so one amd64 runner builds both.
-name: Release image
+name: Release
 
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "The version to release, for example 0.3.0. Empty takes the next version from the commits."
+        required: false
+        type: string
 
 permissions:
   contents: read
-  packages: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
-  image:
+  tag:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.pick.outputs.tag }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          # The whole history and every tag, because git-cliff reads the commits since the last tag.
+          fetch-depth: 0
+
+      - if: github.event_name == 'workflow_dispatch'
+        uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Make the release commit and the tag
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ -n "$VERSION" ]; then
+            nix develop --command scripts/release.sh "$VERSION"
+          else
+            nix develop --command scripts/release.sh
+          fi
+          git push --follow-tags
+
+      - id: pick
+        name: Name the tag of this release
+        env:
+          EVENT: ${{ github.event_name }}
+          # A tag push carries the tag in the ref. A manual run takes the tag that the script made.
+          REF_TAG: ${{ github.ref_name }}
+        run: |
+          if [ "$EVENT" = workflow_dispatch ]; then
+            echo "tag=$(git describe --tags --abbrev=0 --match 'v*')" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=$REF_TAG" >> "$GITHUB_OUTPUT"
+          fi
+
+  image:
+    needs: tag
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.tag.outputs.tag }}
 
       - uses: docker/setup-buildx-action@v3
 
@@ -30,9 +90,10 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/${{ github.repository }}
+          # `value` names the tag, because a manual run starts from a branch ref.
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{version}},value=${{ needs.tag.outputs.tag }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.tag.outputs.tag }}
 
       - uses: docker/build-push-action@v6
         with:
@@ -47,20 +108,21 @@ jobs:
           provenance: false
 
   release:
-    needs: image
+    needs: [tag, image]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v5
         with:
+          ref: ${{ needs.tag.outputs.tag }}
           # The whole history, because the notes come from the annotated tag.
           fetch-depth: 0
 
       - name: Publish the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ needs.tag.outputs.tag }}
         run: |
           git tag --list "$TAG" --format='%(contents:body)' > "$RUNNER_TEMP/notes.md"
           gh release create "$TAG" --verify-tag --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md"
