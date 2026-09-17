@@ -331,31 +331,34 @@ impl<C: DerefMut<Target = PgConnection>> Library<C> {
         .await?)
     }
 
+    /// The episode this payload already names, by Plex guid or season and number.
+    pub async fn find_episode_for(
+        &mut self,
+        show_id: Uuid,
+        input: &EpisodeInput,
+    ) -> Result<Option<EpisodeRow>> {
+        if let Some(guid) = non_empty(input.ids.plex_guid.as_deref()) {
+            let by_guid = sqlx::query_as!(
+                EpisodeRow,
+                "SELECT id, show_id, season, number, title, plex_guid, imdb_id, tmdb_id, tvdb_id, duration_ms, aired_at, created_at, updated_at
+                 FROM episodes WHERE plex_guid = $1",
+                guid
+            )
+            .fetch_optional(self.conn())
+            .await?;
+            if by_guid.is_some() {
+                return Ok(by_guid);
+            }
+        }
+        self.find_episode(show_id, input.season, input.number).await
+    }
+
     pub async fn upsert_episode(
         &mut self,
         show_id: Uuid,
         input: &EpisodeInput,
     ) -> Result<EpisodeRow> {
-        let by_guid = match non_empty(input.ids.plex_guid.as_deref()) {
-            Some(guid) => {
-                sqlx::query_as!(
-                    EpisodeRow,
-                    "SELECT id, show_id, season, number, title, plex_guid, imdb_id, tmdb_id, tvdb_id, duration_ms, aired_at, created_at, updated_at
-                     FROM episodes WHERE plex_guid = $1",
-                    guid
-                )
-                .fetch_optional(self.conn())
-                .await?
-            }
-            None => None,
-        };
-        let current = match by_guid {
-            Some(row) => Some(row),
-            None => {
-                self.find_episode(show_id, input.season, input.number)
-                    .await?
-            }
-        };
+        let current = self.find_episode_for(show_id, input).await?;
         let now = self.now();
         if let Some(current) = current {
             return Ok(sqlx::query_as!(

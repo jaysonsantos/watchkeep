@@ -234,6 +234,39 @@ async fn an_older_event_does_not_replace_a_newer_position() -> Result<()> {
 }
 
 #[tokio::test]
+async fn a_stale_event_does_not_rewrite_the_title() -> Result<()> {
+    let t = test_context(|_| {}, false).await?;
+    let app = t.app();
+    let (_, body) = call(
+        &app,
+        scrobble_request(&scrobble_movie(json!({
+            "occurred_at": "2026-01-01T13:00:00Z",
+            "position_ms": 6_000_000,
+        }))),
+    )
+    .await;
+    let movie = body["targetId"].as_str().expect("an id").parse()?;
+
+    let mut late = scrobble_movie(json!({
+        "occurred_at": "2026-01-01T12:10:00Z",
+        "position_ms": 60_000,
+    }));
+    late["event_id"] = other_id()["event_id"].clone();
+    late["media"]["title"] = json!("Old Heat");
+    let (status, body) = call(&app, scrobble_request(&late)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["action"], "stale-event");
+    let mut library = t.library().await?;
+    let stored = library
+        .get_media(movie)
+        .await?
+        .expect("the movie of the newer event");
+    assert_eq!(stored.title, "Heat");
+    drop(library);
+    t.close().await
+}
+
+#[tokio::test]
 async fn a_late_play_keeps_a_newer_position() -> Result<()> {
     let t = test_context(|_| {}, false).await?;
     let app = t.app();

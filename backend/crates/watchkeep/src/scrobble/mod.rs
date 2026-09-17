@@ -17,8 +17,8 @@ use watchkeep_catalog::{Catalog, CatalogEpisode, CatalogMovie, CatalogShow};
 use watchkeep_storage::clock::SharedClock;
 use watchkeep_storage::library::{Library, PlayInput, ProgressInput};
 use watchkeep_storage::model::{
-    EpisodeInput, EpisodeRef, ExternalIds, MediaRef, MovieRef, PlaySource, PlayState, ProgressRow,
-    ShowRef, TargetKind, non_empty, tmdb_number, to_millis,
+    EpisodeInput, EpisodeRef, EpisodeRow, ExternalIds, MediaKind, MediaRef, MediaRow, MovieRef,
+    PlaySource, PlayState, ProgressRow, ShowRef, TargetKind, non_empty, tmdb_number, to_millis,
 };
 use watchkeep_storage::text_enum;
 
@@ -92,6 +92,21 @@ pub fn runtime_to_duration(minutes: Option<i32>) -> Option<Duration> {
 
 pub fn episode_code(season: i32, number: i32) -> String {
     format!("S{season:02}E{number:02}")
+}
+
+fn movie_display_title(movie: &MediaRow) -> String {
+    match movie.year.filter(|year| *year != 0) {
+        Some(year) => format!("{} ({year})", movie.title),
+        None => movie.title.clone(),
+    }
+}
+
+fn episode_display_title(show: &MediaRow, episode: &EpisodeRow) -> String {
+    let code = episode_code(episode.season, episode.number);
+    match non_empty(episode.title.as_deref()) {
+        Some(name) => format!("{} {code} {name}", show.title),
+        None => format!("{} {code}", show.title),
+    }
 }
 
 fn with_tmdb(
@@ -269,14 +284,10 @@ pub async fn resolve_target<C: DerefMut<Target = PgConnection>>(
                 .lock_media_identity(&MediaRef::Movie(movie.clone()))
                 .await?;
             let movie = library.upsert_movie(&movie).await?;
-            let title = match movie.year.filter(|year| *year != 0) {
-                Some(year) => format!("{} ({year})", movie.title),
-                None => movie.title.clone(),
-            };
             Ok(ResolvedTarget {
                 kind: TargetKind::Movie,
                 id: movie.id,
-                title,
+                title: movie_display_title(&movie),
                 duration: movie.duration(),
                 show_id: None,
             })
@@ -287,19 +298,70 @@ pub async fn resolve_target<C: DerefMut<Target = PgConnection>>(
                 .lock_media_identity(&MediaRef::Episode(enriched.clone()))
                 .await?;
             let show = library.upsert_show(&enriched.show).await?;
-            let episode = library.upsert_episode(show.id, &enriched).await?;
-            let code = episode_code(episode.season, episode.number);
-            let title = match non_empty(episode.title.as_deref()) {
-                Some(name) => format!("{} {code} {name}", show.title),
-                None => format!("{} {code}", show.title),
-            };
+            let episode = library.upsert_episode(show.id, &enriched.episode).await?;
             Ok(ResolvedTarget {
                 kind: TargetKind::Episode,
                 id: episode.id,
-                title,
+                title: episode_display_title(&show, &episode),
                 duration: episode.duration(),
                 show_id: Some(show.id),
             })
+        }
+    }
+}
+
+/// The item this payload already names, without writing title or year.
+async fn find_existing_target<C: DerefMut<Target = PgConnection>>(
+    library: &mut Library<C>,
+    catalog: Option<&Catalog>,
+    media: MediaRef,
+) -> Result<Option<ResolvedTarget>> {
+    match media {
+        MediaRef::Movie(movie) => {
+            let movie = enrich_movie(catalog, movie).await?;
+            library
+                .lock_media_identity(&MediaRef::Movie(movie.clone()))
+                .await?;
+            let Some(movie) = library
+                .find_media(MediaKind::Movie, &movie.title, movie.year, &movie.ids)
+                .await?
+            else {
+                return Ok(None);
+            };
+            Ok(Some(ResolvedTarget {
+                kind: TargetKind::Movie,
+                id: movie.id,
+                title: movie_display_title(&movie),
+                duration: movie.duration(),
+                show_id: None,
+            }))
+        }
+        MediaRef::Episode(episode) => {
+            let enriched = enrich_episode(catalog, episode).await?;
+            library
+                .lock_media_identity(&MediaRef::Episode(enriched.clone()))
+                .await?;
+            let Some(show) = library
+                .find_media(
+                    MediaKind::Show,
+                    &enriched.show.title,
+                    enriched.show.year,
+                    &enriched.show.ids,
+                )
+                .await?
+            else {
+                return Ok(None);
+            };
+            let Some(episode) = library.find_episode_for(show.id, &enriched.episode).await? else {
+                return Ok(None);
+            };
+            Ok(Some(ResolvedTarget {
+                kind: TargetKind::Episode,
+                id: episode.id,
+                title: episode_display_title(&show, &episode),
+                duration: episode.duration(),
+                show_id: Some(show.id),
+            }))
         }
     }
 }
@@ -501,64 +563,22 @@ impl Scrobbler {
                     position_ms: None,
                     percent: None,
                 }
+            } else if let Some(target) =
+                find_existing_target(&mut library, self.catalog.as_ref(), media.clone()).await?
+            {
+                library.lock_target(target.kind, target.id).await?;
+                if let Some(stale) = Self::stale_for_existing(&mut library, event, &target).await? {
+                    stale
+                } else {
+                    let target = resolve_target(&mut library, self.catalog.as_ref(), media).await?;
+                    self.apply_new_scrobble(&mut library, event, &target)
+                        .await?
+                }
             } else {
                 let target = resolve_target(&mut library, self.catalog.as_ref(), media).await?;
-                // Every branch below reads the plays or the position and then
-                // writes. Two events of one item must not interleave between the
-                // read and the write, else two plays land inside the rewatch
-                // window, or a position re-opens an item that a play just closed.
                 library.lock_target(target.kind, target.id).await?;
-                let result = if library
-                    .last_scrobble_event_at(target.kind, target.id)
+                self.apply_new_scrobble(&mut library, event, &target)
                     .await?
-                    .is_some_and(|at| event.watermark_at() < at)
-                {
-                    match library.get_progress(target.kind, target.id).await? {
-                        Some(stored) if event.occurred_at < stored.updated_at => {
-                            Self::stale_result(&target, &stored)
-                        }
-                        _ => Self::stale_result_without_progress(&target),
-                    }
-                } else {
-                    match event.event {
-                        ScrobbleEventName::Start | ScrobbleEventName::Progress => {
-                            self.scrobble_progress(&mut library, event, &target, PlayState::Playing)
-                                .await?
-                        }
-                        ScrobbleEventName::Pause => {
-                            self.scrobble_progress(&mut library, event, &target, PlayState::Paused)
-                                .await?
-                        }
-                        ScrobbleEventName::Stop => {
-                            self.scrobble_stop(&mut library, event, &target).await?
-                        }
-                        ScrobbleEventName::Watched => {
-                            self.scrobble_play(&mut library, event, &target).await?
-                        }
-                        ScrobbleEventName::Unwatched => {
-                            Self::scrobble_unwatched(&mut library, event, &target).await?
-                        }
-                    }
-                };
-                let retain_event = matches!(
-                    event.event,
-                    ScrobbleEventName::Watched | ScrobbleEventName::Unwatched
-                ) || (event.event == ScrobbleEventName::Stop
-                    && matches!(
-                        result.action,
-                        ScrobbleAction::Play | ScrobbleAction::DuplicatePlay
-                    ));
-                if retain_event && result.action != ScrobbleAction::DuplicateEvent {
-                    library
-                        .record_scrobble_event(
-                            event.event_id,
-                            target.kind,
-                            target.id,
-                            event.watermark_at(),
-                        )
-                        .await?;
-                }
-                result
             }
         };
         tx.commit().await?;
@@ -575,27 +595,94 @@ impl Scrobbler {
             TargetKind::Movie => Ok(library
                 .get_media(id)
                 .await?
-                .map(|movie| match movie.year.filter(|year| *year != 0) {
-                    Some(year) => format!("{} ({year})", movie.title),
-                    None => movie.title,
-                })
+                .map(|movie| movie_display_title(&movie))
                 .unwrap_or_else(|| kind.to_string())),
             TargetKind::Episode => {
                 let Some(episode) = library.get_episode(id).await? else {
                     return Ok(kind.to_string());
                 };
-                let show_title = library
+                Ok(library
                     .get_media(episode.show_id)
                     .await?
-                    .map(|show| show.title)
-                    .unwrap_or_default();
-                let code = episode_code(episode.season, episode.number);
-                Ok(match non_empty(episode.title.as_deref()) {
-                    Some(name) => format!("{show_title} {code} {name}"),
-                    None => format!("{show_title} {code}"),
-                })
+                    .map(|show| episode_display_title(&show, &episode))
+                    .unwrap_or_else(|| kind.to_string()))
             }
         }
+    }
+
+    /// `StaleEvent` when this payload is older than the item's watermark or position.
+    async fn stale_for_existing<C: DerefMut<Target = PgConnection>>(
+        library: &mut Library<C>,
+        event: &ScrobbleEvent,
+        target: &ResolvedTarget,
+    ) -> Result<Option<ScrobbleResult>> {
+        if library
+            .last_scrobble_event_at(target.kind, target.id)
+            .await?
+            .is_some_and(|at| event.watermark_at() < at)
+        {
+            return Ok(Some(
+                match library.get_progress(target.kind, target.id).await? {
+                    Some(stored) if event.occurred_at < stored.updated_at => {
+                        Self::stale_result(target, &stored)
+                    }
+                    _ => Self::stale_result_without_progress(target),
+                },
+            ));
+        }
+        if let Some(stored) = library
+            .get_progress(target.kind, target.id)
+            .await?
+            .filter(|stored| event.occurred_at < stored.updated_at)
+        {
+            return Ok(Some(Self::stale_result(target, &stored)));
+        }
+        if event.event == ScrobbleEventName::Unwatched
+            && library
+                .last_play(target.kind, target.id)
+                .await?
+                .is_some_and(|play| event.occurred_at < play.watched_at)
+        {
+            return Ok(Some(Self::stale_result_without_progress(target)));
+        }
+        Ok(None)
+    }
+
+    async fn apply_new_scrobble<C: DerefMut<Target = PgConnection>>(
+        &self,
+        library: &mut Library<C>,
+        event: &ScrobbleEvent,
+        target: &ResolvedTarget,
+    ) -> Result<ScrobbleResult> {
+        let result = match event.event {
+            ScrobbleEventName::Start | ScrobbleEventName::Progress => {
+                self.scrobble_progress(library, event, target, PlayState::Playing)
+                    .await?
+            }
+            ScrobbleEventName::Pause => {
+                self.scrobble_progress(library, event, target, PlayState::Paused)
+                    .await?
+            }
+            ScrobbleEventName::Stop => self.scrobble_stop(library, event, target).await?,
+            ScrobbleEventName::Watched => self.scrobble_play(library, event, target).await?,
+            ScrobbleEventName::Unwatched => {
+                Self::scrobble_unwatched(library, event, target).await?
+            }
+        };
+        let retain_event = matches!(
+            event.event,
+            ScrobbleEventName::Watched | ScrobbleEventName::Unwatched
+        ) || (event.event == ScrobbleEventName::Stop
+            && matches!(
+                result.action,
+                ScrobbleAction::Play | ScrobbleAction::DuplicatePlay
+            ));
+        if retain_event && result.action != ScrobbleAction::DuplicateEvent {
+            library
+                .record_scrobble_event(event.event_id, target.kind, target.id, event.watermark_at())
+                .await?;
+        }
+        Ok(result)
     }
 
     /// The position and the duration of a generic event, and the stored progress.
