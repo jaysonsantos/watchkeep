@@ -132,6 +132,16 @@ impl GenreWeights {
     }
 }
 
+/// What the original language of a candidate does to its score, as the two
+/// arrays that a candidate query takes. The caller owns the number, the catalog
+/// only multiplies the score by it, so that the cap per genre group keeps the
+/// rows that the final score keeps. A language that is absent counts as 1.0.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LanguageBoosts {
+    pub codes: Vec<String>,
+    pub boosts: Vec<f64>,
+}
+
 /// A catalog item that matches the genre affinity, with the parts of the score
 /// that only the catalog knows.
 #[derive(Clone, Debug, PartialEq)]
@@ -786,9 +796,12 @@ impl Catalog {
     /// Released movies that match the genre affinity, best first. `exclude` holds
     /// the TMDB ids that the library already has. `max_per_group` keeps lower
     /// ranked genre sets in the result: without it, one pair can fill `limit`.
+    /// `languages` carries the language boost of the caller, so that the cap per
+    /// group weighs a candidate by the score that the caller gives it.
     pub async fn movie_candidates(
         &self,
         genres: &GenreWeights,
+        languages: &LanguageBoosts,
         exclude: &[i64],
         today: NaiveDate,
         limit: i64,
@@ -801,6 +814,8 @@ impl Catalog {
         let rows = sqlx::query!(
             r#"WITH affinity AS (
                  SELECT * FROM unnest($1::bigint[], $2::float8[]) AS t (genre_id, weight)
+               ), boost AS (
+                 SELECT * FROM unnest($10::text[], $11::float8[]) AS t (code, boost)
                ), pool AS (
                  SELECT m.id FROM tmdb_movie m
                  WHERE m.vote_count >= $3 AND NOT (m.id = ANY($4))
@@ -836,11 +851,13 @@ impl Catalog {
                         m.overview_en, m.overview_pt, m.original_language,
                         k.affinity, k.genres,
                         COALESCE(m.weighted_rating, 0.0) AS quality,
+                        k.affinity * COALESCE(m.weighted_rating, 0.0) * COALESCE(b.boost, 1.0) AS score,
                         ROW_NUMBER() OVER (
                           PARTITION BY k.genre_key
-                          ORDER BY k.affinity * COALESCE(m.weighted_rating, 0.0) DESC, k.id DESC
+                          ORDER BY k.affinity * COALESCE(m.weighted_rating, 0.0) * COALESCE(b.boost, 1.0) DESC, k.id DESC
                         ) AS rn
                  FROM keyed k JOIN tmdb_movie m ON m.id = k.id
+                 LEFT JOIN boost b ON b.code = m.original_language
                )
                SELECT id, imdb_id, title_en, title_pt, original_title, release_date,
                       runtime, poster_path_en, poster_path_pt, overview_en, overview_pt,
@@ -848,7 +865,7 @@ impl Catalog {
                       quality AS "quality!"
                FROM ranked
                WHERE rn <= $8
-               ORDER BY affinity * quality DESC, id DESC
+               ORDER BY score DESC, id DESC
                LIMIT $7"#,
             &genres.ids,
             &genres.weights,
@@ -858,7 +875,9 @@ impl Catalog {
             CANDIDATE_POOL,
             limit,
             max_per_group,
-            CANDIDATE_GROUP_GENRES
+            CANDIDATE_GROUP_GENRES,
+            &languages.codes,
+            &languages.boosts
         )
         .fetch_all(&self.pool)
         .await?;
@@ -886,11 +905,13 @@ impl Catalog {
             .collect())
     }
 
-    /// Shows that match the genre affinity, best first. `max_per_group` is the
-    /// same cap as for movies: one genre set must not fill `limit`.
+    /// Shows that match the genre affinity, best first. `max_per_group` and
+    /// `languages` are the same as for movies: one genre set must not fill
+    /// `limit`, and the cap weighs a candidate by the score of the caller.
     pub async fn show_candidates(
         &self,
         genres: &GenreWeights,
+        languages: &LanguageBoosts,
         exclude: &[i64],
         today: NaiveDate,
         limit: i64,
@@ -903,6 +924,8 @@ impl Catalog {
         let rows = sqlx::query!(
             r#"WITH affinity AS (
                  SELECT * FROM unnest($1::bigint[], $2::float8[]) AS t (genre_id, weight)
+               ), boost AS (
+                 SELECT * FROM unnest($10::text[], $11::float8[]) AS t (code, boost)
                ), pool AS (
                  SELECT s.id FROM tmdb_show s
                  WHERE s.vote_count >= $3 AND NOT (s.id = ANY($4))
@@ -939,11 +962,13 @@ impl Catalog {
                         s2.number_of_episodes::int AS number_of_episodes,
                         k.affinity, k.genres,
                         COALESCE(s2.weighted_rating, 0.0) AS quality,
+                        k.affinity * COALESCE(s2.weighted_rating, 0.0) * COALESCE(b.boost, 1.0) AS score,
                         ROW_NUMBER() OVER (
                           PARTITION BY k.genre_key
-                          ORDER BY k.affinity * COALESCE(s2.weighted_rating, 0.0) DESC, k.id DESC
+                          ORDER BY k.affinity * COALESCE(s2.weighted_rating, 0.0) * COALESCE(b.boost, 1.0) DESC, k.id DESC
                         ) AS rn
                  FROM keyed k JOIN tmdb_show s2 ON s2.id = k.id
+                 LEFT JOIN boost b ON b.code = s2.original_language
                )
                SELECT id, imdb_id, tvdb_id, name_en, name_pt, original_name, first_air_date,
                       poster_path_en, poster_path_pt, overview_en, overview_pt, original_language,
@@ -952,7 +977,7 @@ impl Catalog {
                       quality AS "quality!"
                FROM ranked
                WHERE rn <= $8
-               ORDER BY affinity * quality DESC, id DESC
+               ORDER BY score DESC, id DESC
                LIMIT $7"#,
             &genres.ids,
             &genres.weights,
@@ -962,7 +987,9 @@ impl Catalog {
             CANDIDATE_POOL,
             limit,
             max_per_group,
-            CANDIDATE_GROUP_GENRES
+            CANDIDATE_GROUP_GENRES,
+            &languages.codes,
+            &languages.boosts
         )
         .fetch_all(&self.pool)
         .await?;

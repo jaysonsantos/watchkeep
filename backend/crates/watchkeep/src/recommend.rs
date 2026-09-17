@@ -23,7 +23,8 @@ use serde::Serialize;
 use tracing::{Span, field, instrument};
 use uuid::Uuid;
 use watchkeep_catalog::{
-    CANDIDATE_GROUP_GENRES, Candidate, Catalog, CatalogMovie, CatalogShow, GenreWeights, TasteFacts,
+    CANDIDATE_GROUP_GENRES, Candidate, Catalog, CatalogMovie, CatalogShow, GenreWeights,
+    LanguageBoosts, TasteFacts,
 };
 use watchkeep_storage::clock::{SharedClock, date_of};
 use watchkeep_storage::model::MediaKind;
@@ -348,6 +349,19 @@ impl Taste {
         }
     }
 
+    /// The language part of the score, for the candidate queries. They cap each
+    /// genre group, so they need the same score as `rank`: a candidate in the
+    /// language of the profile must not fall out of its group before the bonus.
+    fn language_boosts(&self) -> LanguageBoosts {
+        let mut codes: Vec<String> = self.languages.keys().cloned().collect();
+        codes.sort();
+        let boosts = codes
+            .iter()
+            .map(|code| language_boost(self.language_share(Some(code))))
+            .collect();
+        LanguageBoosts { codes, boosts }
+    }
+
     /// A weight as a part of the largest weight of the profile, from 0.0 to 1.0.
     fn relative(&self, weight: f64) -> f64 {
         if self.max_weight <= 0.0 {
@@ -424,6 +438,7 @@ impl Recommender {
         Span::current().record("taste.items", taste.watched_items);
         let movie_genres = unit_vector(&taste.movie_genres);
         let show_genres = unit_vector(&taste.show_genres);
+        let languages = taste.language_boosts();
         let collection_ids = taste.collection_ids();
         // Collection movies have their own list. Exclude them from the genre
         // query so a per-group cap there is not spent on a row that this list
@@ -437,6 +452,7 @@ impl Recommender {
         let (movies, shows) = tokio::try_join!(
             catalog.movie_candidates(
                 &movie_genres,
+                &languages,
                 &movie_exclude,
                 today,
                 CANDIDATE_LIMIT,
@@ -444,6 +460,7 @@ impl Recommender {
             ),
             catalog.show_candidates(
                 &show_genres,
+                &languages,
                 &taste.show_ids,
                 today,
                 CANDIDATE_LIMIT,
@@ -519,6 +536,12 @@ impl Recommender {
     }
 }
 
+/// What the language of a candidate does to its score, from the share of the
+/// profile that the language holds.
+fn language_boost(share: f64) -> f64 {
+    1.0 + LANGUAGE_BONUS * share
+}
+
 fn ids_of(items: &[TasteItem], kind: MediaKind) -> Vec<i64> {
     items
         .iter()
@@ -541,10 +564,10 @@ fn rank<T>(
     let items: Vec<(Vec<i64>, Recommendation<T>)> = candidates
         .into_iter()
         .map(|candidate| {
-            let language = taste.language_share(candidate.language.as_ref());
+            let share = taste.language_share(candidate.language.as_ref());
             let score = candidate.affinity
                 * (candidate.quality / MAX_CATALOG_RATING)
-                * (1.0 + LANGUAGE_BONUS * language);
+                * language_boost(share);
             // A genre that the profile does not hold is no reason for the pick.
             let mut genres = candidate.genres;
             genres.retain(|genre_id| weights(genre_id) > 0.0);

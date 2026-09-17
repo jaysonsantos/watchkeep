@@ -95,6 +95,27 @@ async fn seed_flood(pool: &PgPool) -> Result<()> {
     Ok(())
 }
 
+/// A Portuguese profile, and one Portuguese candidate of each kind that three
+/// English ones of the same genre group outrank on the rating alone. See
+/// `seed_recommendations` for why these statements are plain SQL.
+async fn seed_language(pool: &PgPool) -> Result<()> {
+    sqlx::raw_sql(AssertSqlSafe(
+        "UPDATE tmdb_movie SET original_language = 'pt' WHERE id = 949;
+         INSERT INTO tmdb_movie (id, title_en, release_date, vote_count, vote_average, original_language, fetched_at, raw_json)
+           VALUES (804, 'O Invasor', '2002-05-24', 1200, 6.0, 'pt', 0, '{}');
+         INSERT INTO tmdb_movie_genre (movie_id, genre_id) VALUES (804, 28), (804, 80);
+         INSERT INTO tmdb_show (id, name_en, first_air_date, vote_count, vote_average, original_language, fetched_at, raw_json)
+           VALUES (900, 'The Ward', '2015-01-05', 1200, 8.0, 'en', 0, '{}'),
+                  (901, 'The Hearing', '2016-01-05', 1200, 7.9, 'en', 0, '{}'),
+                  (902, 'The Verdict', '2017-01-05', 1200, 7.8, 'en', 0, '{}'),
+                  (903, 'Cidade dos Homens', '2002-10-15', 1200, 6.0, 'pt', 0, '{}');
+         INSERT INTO tmdb_show_genre (show_id, genre_id) VALUES (900, 18), (901, 18), (902, 18), (903, 18);",
+    ))
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 fn tmdb_ids(items: &Value) -> Vec<i64> {
     items
         .as_array()
@@ -295,6 +316,43 @@ async fn caps_the_movies_of_one_collection() -> Result<()> {
         tmdb_ids(&body["nextInCollection"]),
         vec![4638, 700, 710, 711],
         "the two best of each collection, best first"
+    );
+    t.close().await
+}
+
+/// The window that caps a genre group ordered by the rating alone, so a title
+/// in the language of the profile could leave the group before the language
+/// bonus of the final score ever reached it.
+#[tokio::test]
+async fn keeps_a_title_of_the_language_of_the_profile_in_its_genre_group() -> Result<()> {
+    let t = test_context(|_| {}, true).await?;
+    let catalog = t.catalog_pool.as_ref().expect("a catalog pool");
+    seed_recommendations(catalog).await?;
+    seed_crowd(catalog).await?;
+    seed_language(catalog).await?;
+    t.scrobbler
+        .apply(&event(&movie_payload(
+            json!({ "event": "media.scrobble" }),
+            json!({}),
+        )))
+        .await?;
+
+    let (_, body) = get(&t.app(), PATH).await;
+    let movies = tmdb_ids(&body["movies"]);
+    let action_crime: Vec<i64> = movies
+        .iter()
+        .copied()
+        .filter(|id| reasons(&body["movies"], *id) == ["Action", "Crime"])
+        .collect();
+    assert_eq!(
+        action_crime,
+        vec![804, 800, 801],
+        "the Portuguese movie leads the pair, although three English ones are rated higher: {movies:?}"
+    );
+    assert_eq!(
+        tmdb_ids(&body["shows"]),
+        vec![903, 900, 901],
+        "the same for the Drama group of the show list"
     );
     t.close().await
 }
