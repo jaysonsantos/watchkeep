@@ -38,9 +38,10 @@ jobs:
           fetch-depth: 0
           # GITHUB_TOKEN cannot push to the default branch. GitHub refuses a
           # ruleset bypass actor of type Integration on a user-owned
-          # repository. This token acts as the repository admin, and the admin
-          # bypass actor lets the push through. Terraform owns the secret.
-          token: ${{ secrets.RELEASE_TOKEN }}
+          # repository. A deploy key works, because it belongs to the
+          # repository. The ruleset names DeployKey as a bypass actor, so this
+          # push goes through. Terraform owns the key and the secret.
+          ssh-key: ${{ secrets.RELEASE_SSH_KEY }}
 
       - name: Refuse a manual run outside the default branch
         # `gh workflow run --ref` and the Actions page can name any branch. A
