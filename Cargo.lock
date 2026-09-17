@@ -3251,7 +3251,7 @@ dependencies = [
 
 [[package]]
 name = "watchkeep"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "axum",
  "chrono",
@@ -3284,7 +3284,7 @@ dependencies = [
 
 [[package]]
 name = "watchkeep-catalog"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "eyre",
@@ -3296,7 +3296,7 @@ dependencies = [
 
 [[package]]
 name = "watchkeep-storage"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "eyre",
@@ -3309,7 +3309,7 @@ dependencies = [
 
 [[package]]
 name = "watchkeep-telemetry"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "color-eyre",
  "console-subscriber",
