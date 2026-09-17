@@ -41,6 +41,39 @@ async fn seed_recommendations(pool: &PgPool) -> Result<()> {
     Ok(())
 }
 
+/// More movies of one genre pair and of one collection than a list holds, so
+/// that a list without a cap would hold nothing else. See `seed_recommendations`
+/// for why these statements are plain SQL.
+async fn seed_crowd(pool: &PgPool) -> Result<()> {
+    sqlx::raw_sql(AssertSqlSafe(
+        // Four more Action and Crime movies, and one Action and Drama movie
+        // that every one of them outranks.
+        "INSERT INTO tmdb_movie (id, title_en, release_date, vote_count, vote_average, original_language, fetched_at, raw_json)
+           VALUES (800, 'Manhunter', '1986-08-15', 1200, 8.0, 'en', 0, '{}'),
+                  (801, 'The Killer', '1989-07-21', 1200, 7.9, 'en', 0, '{}'),
+                  (802, 'Point Blank', '1967-08-30', 1200, 7.8, 'en', 0, '{}'),
+                  (803, 'The Getaway', '1972-12-13', 1200, 7.7, 'en', 0, '{}'),
+                  (810, 'The Insider', '1999-11-05', 1200, 7.0, 'en', 0, '{}');
+         INSERT INTO tmdb_movie_genre (movie_id, genre_id) VALUES
+           (800, 28), (800, 80), (801, 28), (801, 80), (802, 28), (802, 80), (803, 28), (803, 80),
+           (810, 28), (810, 18);
+         -- A second collection, and four more movies of the collection of Heat.
+         INSERT INTO collection (id, name_en, name_pt) VALUES (2000, 'The Spy Collection', 'Coleção Espiã');
+         INSERT INTO tmdb_movie (id, title_en, release_date, vote_count, vote_average, original_language, collection_id, fetched_at, raw_json)
+           VALUES (700, 'Thief of Hearts', '1984-10-19', 1200, 7.9, 'en', 1000, 0, '{}'),
+                  (701, 'Miami Vice', '2006-07-28', 1200, 7.8, 'en', 1000, 0, '{}'),
+                  (702, 'Blackhat', '2015-01-16', 1200, 7.7, 'en', 1000, 0, '{}'),
+                  (703, 'Ferrari', '2023-12-25', 1200, 7.6, 'en', 1000, 0, '{}'),
+                  (710, 'The Spy Who Stayed', '1979-06-01', 1200, 7.0, 'en', 2000, 0, '{}'),
+                  (711, 'The Spy Who Left', '1983-06-01', 1200, 6.9, 'en', 2000, 0, '{}'),
+                  (712, 'The Spy Who Returned', '1987-06-01', 1200, 6.8, 'en', 2000, 0, '{}'),
+                  (713, 'The Spy Who Began', '1975-06-01', 1200, 6.7, 'en', 2000, 0, '{}');",
+    ))
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 fn tmdb_ids(items: &Value) -> Vec<i64> {
     items
         .as_array()
@@ -140,6 +173,82 @@ async fn offers_the_rest_of_a_collection_and_lists_it_only_once() -> Result<()> 
     assert!(
         !tmdb_ids(&body["movies"]).contains(&4638),
         "a movie of a collection appears in one list only"
+    );
+    t.close().await
+}
+
+/// The genre vector gives the same affinity to every movie of one genre pair,
+/// so the rating alone would order them and the pair would fill the list.
+#[tokio::test]
+async fn gives_a_second_genre_pair_a_place_in_the_movie_list() -> Result<()> {
+    let t = test_context(|_| {}, true).await?;
+    let catalog = t.catalog_pool.as_ref().expect("a catalog pool");
+    seed_recommendations(catalog).await?;
+    seed_crowd(catalog).await?;
+    t.scrobbler
+        .apply(&event(&movie_payload(
+            json!({ "event": "media.scrobble" }),
+            json!({}),
+        )))
+        .await?;
+
+    let (_, body) = get(&t.app(), PATH).await;
+    let movies = tmdb_ids(&body["movies"]);
+    let action_crime: Vec<i64> = movies
+        .iter()
+        .copied()
+        .filter(|id| reasons(&body["movies"], *id) == ["Action", "Crime"])
+        .collect();
+    assert_eq!(
+        action_crime,
+        vec![800, 801, 802],
+        "the three best of the pair, and no fourth: {movies:?}"
+    );
+    assert!(
+        movies.contains(&810),
+        "Action and Drama gets a place, although every Action and Crime movie outranks it: {movies:?}"
+    );
+    t.close().await
+}
+
+/// One collection holds more movies than the list, so the cap is what keeps the
+/// other collections in it.
+#[tokio::test]
+async fn caps_the_movies_of_one_collection() -> Result<()> {
+    let t = test_context(|_| {}, true).await?;
+    let catalog = t.catalog_pool.as_ref().expect("a catalog pool");
+    seed_recommendations(catalog).await?;
+    seed_crowd(catalog).await?;
+    t.scrobbler
+        .apply(&event(&movie_payload(
+            json!({ "event": "media.scrobble" }),
+            json!({}),
+        )))
+        .await?;
+    // A watched movie of the second collection, so that both count as taste.
+    let (status, movie) = call(
+        &t.app(),
+        json_request(Method::POST, "/api/movies", &json!({ "tmdb_id": 713 })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let movie_id: Uuid = id_of(&movie);
+    let (status, _) = call(
+        &t.app(),
+        json_request(
+            Method::POST,
+            &format!("/api/movies/{movie_id}/watched"),
+            &json!({}),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (_, body) = get(&t.app(), PATH).await;
+    assert_eq!(
+        tmdb_ids(&body["nextInCollection"]),
+        vec![4638, 700, 710, 711],
+        "the two best of each collection, best first"
     );
     t.close().await
 }

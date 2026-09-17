@@ -6,11 +6,16 @@
 //! per genre, which gives one vector per genre kind. The catalog then scores its
 //! own items against that vector.
 //!
+//! A list takes only a few items of one genre set and only a few movies of one
+//! collection, because the score of the items of one group barely differs and
+//! the best group would otherwise fill the whole list.
+//!
 //! The two databases stay apart. The storage database gives the ids and the
 //! signals, the catalog database gives the genres and the candidates, and this
 //! module joins the two results in memory.
 
 use std::collections::HashMap;
+use std::hash::Hash;
 
 use chrono::{DateTime, Utc};
 use eyre::Result;
@@ -64,6 +69,16 @@ const RETURNING_REASON: &str = "New episodes in production";
 
 /// How many items each list of the page holds.
 pub const RECOMMENDATION_LIMIT: usize = 24;
+
+/// How many items of one genre set a list of the page holds. The genre vector
+/// of a profile with many watched items gives nearly the same affinity to every
+/// candidate of the strongest genres, so the rating alone orders them and one
+/// genre set takes the whole list. The cap leaves places for the sets below it.
+const MAX_PER_GENRE_SET: usize = 3;
+
+/// How many movies of one collection the collection list holds, so that a long
+/// series does not fill it.
+const MAX_PER_COLLECTION: usize = 2;
 
 /// How many rows a candidate query returns. The final score re-ranks them, so
 /// the query returns more rows than the page shows.
@@ -436,7 +451,7 @@ impl Recommender {
         candidates: Vec<watchkeep_catalog::CollectionMovie>,
         taste: &Taste,
     ) -> Vec<Recommendation<CatalogMovie>> {
-        let mut items: Vec<Recommendation<CatalogMovie>> = candidates
+        let items: Vec<(i64, Recommendation<CatalogMovie>)> = candidates
             .into_iter()
             .map(|candidate| {
                 let weight = taste
@@ -444,16 +459,18 @@ impl Recommender {
                     .get(&candidate.collection_id)
                     .copied()
                     .unwrap_or(0.0);
-                Recommendation {
-                    local_id: None,
-                    score: taste.relative(weight) * candidate.quality / MAX_CATALOG_RATING,
-                    reasons: candidate.collection_name.into_iter().collect(),
-                    item: candidate.movie,
-                }
+                (
+                    candidate.collection_id,
+                    Recommendation {
+                        local_id: None,
+                        score: taste.relative(weight) * candidate.quality / MAX_CATALOG_RATING,
+                        reasons: candidate.collection_name.into_iter().collect(),
+                        item: candidate.movie,
+                    },
+                )
             })
             .collect();
-        sort_by_score(&mut items);
-        items
+        take_diverse(items, MAX_PER_COLLECTION)
     }
 
     /// Shows of the library that are complete and still make episodes. The
@@ -505,7 +522,7 @@ fn rank<T>(
     genre_names: &HashMap<i64, String>,
 ) -> Vec<Recommendation<T>> {
     let weights = |genre_id: &i64| -> f64 { genre_weights.get(genre_id).copied().unwrap_or(0.0) };
-    let mut items: Vec<Recommendation<T>> = candidates
+    let items: Vec<(Vec<i64>, Recommendation<T>)> = candidates
         .into_iter()
         .map(|candidate| {
             let language = taste.language_share(candidate.language.as_ref());
@@ -517,19 +534,47 @@ fn rank<T>(
             genres.retain(|genre_id| weights(genre_id) > 0.0);
             genres.sort_by(|a, b| weights(b).total_cmp(&weights(a)).then_with(|| a.cmp(b)));
             genres.truncate(MAX_REASON_GENRES);
-            Recommendation {
-                item: candidate.item,
-                local_id: None,
-                score: score.clamp(0.0, 1.0),
-                reasons: genres
-                    .iter()
-                    .filter_map(|genre_id| genre_names.get(genre_id).cloned())
-                    .collect(),
-            }
+            (
+                genres.clone(),
+                Recommendation {
+                    item: candidate.item,
+                    local_id: None,
+                    score: score.clamp(0.0, 1.0),
+                    reasons: genres
+                        .iter()
+                        .filter_map(|genre_id| genre_names.get(genre_id).cloned())
+                        .collect(),
+                },
+            )
         })
         .collect();
-    sort_by_score(&mut items);
-    items
+    take_diverse(items, MAX_PER_GENRE_SET)
+}
+
+/// The best items, best first, with at most `cap` items per group. A group is
+/// the genre set that the reason line names, or the collection of a movie.
+/// Every item of one group scores almost the same, so without the cap the best
+/// group fills the list and nothing else appears. The list is then shorter than
+/// `RECOMMENDATION_LIMIT` when the candidates hold few groups: a short list of
+/// different things says more than a long list of one thing.
+fn take_diverse<T, K: Eq + Hash>(
+    mut items: Vec<(K, Recommendation<T>)>,
+    cap: usize,
+) -> Vec<Recommendation<T>> {
+    items.sort_by(|(_, a), (_, b)| b.score.total_cmp(&a.score));
+    let mut taken: HashMap<K, usize> = HashMap::new();
+    let mut list = Vec::new();
+    for (group, item) in items {
+        if list.len() >= RECOMMENDATION_LIMIT {
+            break;
+        }
+        let count = taken.entry(group).or_default();
+        if *count < cap {
+            *count += 1;
+            list.push(item);
+        }
+    }
+    list
 }
 
 fn sort_by_score<T>(items: &mut Vec<Recommendation<T>>) {
