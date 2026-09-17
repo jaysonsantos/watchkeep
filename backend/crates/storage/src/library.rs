@@ -13,13 +13,17 @@ use uuid::Uuid;
 
 use crate::clock::SharedClock;
 use crate::model::{
-    EpisodeInput, EpisodeRow, ExternalIds, MediaKind, MediaRow, MovieRef, PlayRow, PlaySource,
-    PlayState, ProgressRow, RatingKind, ShowRef, TargetKind, WatchlistRow, millis, new_id,
-    non_empty, tmdb_number, to_millis,
+    EpisodeInput, EpisodeRow, ExternalIds, MediaKind, MediaRef, MediaRow, MovieRef, PlayRow,
+    PlaySource, PlayState, ProgressRow, RatingKind, ShowRef, TargetKind, WatchlistRow, millis,
+    new_id, non_empty, tmdb_number, to_millis,
 };
 
 /// The `event` column of a webhook log row when the payload had no event name.
 pub const UNKNOWN_EVENT: &str = "unknown";
+
+const IDENTITY_LOCK_PREFIX: &str = "media-identity";
+const SCROBBLE_EVENT_LOCK_PREFIX: &str = "scrobble-event";
+const TARGET_LOCK_PREFIX: &str = "target";
 
 pub struct PlayInput {
     pub kind: TargetKind,
@@ -187,6 +191,11 @@ impl<C: DerefMut<Target = PgConnection>> Library<C> {
                 return Ok(row);
             }
         }
+        // A source that sends ids only leaves the title empty. Such an item
+        // keeps its own row: a blank title matches every other blank title.
+        let Some(title) = non_empty(Some(title.trim())) else {
+            return Ok(None);
+        };
         Ok(sqlx::query_as!(
             MediaRow,
             r#"SELECT id, kind AS "kind: MediaKind", title, year, plex_guid, imdb_id, tmdb_id, tvdb_id,
@@ -227,7 +236,8 @@ impl<C: DerefMut<Target = PgConnection>> Library<C> {
                WHERE id = $11
                RETURNING id, kind AS "kind: MediaKind", title, year, plex_guid, imdb_id, tmdb_id, tvdb_id,
                          duration_ms, summary, poster_path, hidden_at, created_at, updated_at"#,
-            input.title,
+            // A source that sends ids alone has no title. It must not erase one.
+            non_empty(Some(input.title.trim())).unwrap_or(current.title.as_str()),
             input.year.or(current.year),
             input.ids.plex_guid.as_deref().or(current.plex_guid.as_deref()),
             input.ids.imdb.as_deref().or(current.imdb_id.as_deref()),
@@ -253,7 +263,9 @@ impl<C: DerefMut<Target = PgConnection>> Library<C> {
                          duration_ms, summary, poster_path, hidden_at, created_at, updated_at"#,
             new_id(now),
             kind.as_str(),
-            input.title,
+            // `find_media` trims before it matches, so a padded title would
+            // never match its own row again.
+            input.title.trim(),
             input.year,
             input.ids.plex_guid.as_deref(),
             input.ids.imdb.as_deref(),
@@ -321,31 +333,34 @@ impl<C: DerefMut<Target = PgConnection>> Library<C> {
         .await?)
     }
 
+    /// The episode this payload already names, by Plex guid or season and number.
+    pub async fn find_episode_for(
+        &mut self,
+        show_id: Uuid,
+        input: &EpisodeInput,
+    ) -> Result<Option<EpisodeRow>> {
+        if let Some(guid) = non_empty(input.ids.plex_guid.as_deref()) {
+            let by_guid = sqlx::query_as!(
+                EpisodeRow,
+                "SELECT id, show_id, season, number, title, plex_guid, imdb_id, tmdb_id, tvdb_id, duration_ms, aired_at, created_at, updated_at
+                 FROM episodes WHERE plex_guid = $1",
+                guid
+            )
+            .fetch_optional(self.conn())
+            .await?;
+            if by_guid.is_some() {
+                return Ok(by_guid);
+            }
+        }
+        self.find_episode(show_id, input.season, input.number).await
+    }
+
     pub async fn upsert_episode(
         &mut self,
         show_id: Uuid,
         input: &EpisodeInput,
     ) -> Result<EpisodeRow> {
-        let by_guid = match non_empty(input.ids.plex_guid.as_deref()) {
-            Some(guid) => {
-                sqlx::query_as!(
-                    EpisodeRow,
-                    "SELECT id, show_id, season, number, title, plex_guid, imdb_id, tmdb_id, tvdb_id, duration_ms, aired_at, created_at, updated_at
-                     FROM episodes WHERE plex_guid = $1",
-                    guid
-                )
-                .fetch_optional(self.conn())
-                .await?
-            }
-            None => None,
-        };
-        let current = match by_guid {
-            Some(row) => Some(row),
-            None => {
-                self.find_episode(show_id, input.season, input.number)
-                    .await?
-            }
-        };
+        let current = self.find_episode_for(show_id, input).await?;
         let now = self.now();
         if let Some(current) = current {
             return Ok(sqlx::query_as!(
@@ -426,6 +441,110 @@ impl<C: DerefMut<Target = PgConnection>> Library<C> {
             id
         )
         .fetch_one(self.conn())
+        .await?)
+    }
+
+    /// The play that a source already recorded under this external id.
+    pub async fn play_by_external_id(
+        &mut self,
+        source: PlaySource,
+        external_id: &str,
+    ) -> Result<Option<PlayRow>> {
+        Ok(sqlx::query_as!(
+            PlayRow,
+            r#"SELECT id, target_kind AS "target_kind: TargetKind", target_id, watched_at, source, account, player, external_id
+               FROM plays WHERE source = $1 AND external_id = $2"#,
+            source.as_str(),
+            external_id
+        )
+        .fetch_optional(self.conn())
+        .await?)
+    }
+
+    /// Hold the item until the transaction ends, so that the checks of a
+    /// scrobble event and its writes cannot interleave with another event of
+    /// the same item. The lock is advisory and transaction scoped: it needs a
+    /// transaction, and it never outlives one.
+    pub async fn lock_target(&mut self, kind: TargetKind, id: Uuid) -> Result<()> {
+        let key = format!("{TARGET_LOCK_PREFIX}:{}:{id}", kind.as_str());
+        sqlx::query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", key)
+            .execute(self.conn())
+            .await?;
+        Ok(())
+    }
+
+    /// Hold a sender event id until the transaction ends, so two deliveries
+    /// cannot both pass the processed-event check.
+    pub async fn lock_scrobble_event(&mut self, event_id: Uuid) -> Result<()> {
+        let key = format!("{SCROBBLE_EVENT_LOCK_PREFIX}:{event_id}");
+        sqlx::query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", key)
+            .execute(self.conn())
+            .await?;
+        Ok(())
+    }
+
+    /// Hold every identity supplied for an item until the transaction ends.
+    /// Sorting the keys gives concurrent requests the same lock order. This
+    /// must run before the media upsert, so two first deliveries cannot both
+    /// decide that the item does not exist.
+    pub async fn lock_media_identity(&mut self, media: &MediaRef) -> Result<()> {
+        let mut keys = Vec::new();
+        let mut add = |kind: MediaKind, title: &str, ids: &ExternalIds| {
+            let prefix = format!("{IDENTITY_LOCK_PREFIX}:{}", kind.as_str());
+            if let Some(value) = non_empty(ids.plex_guid.as_deref()) {
+                keys.push(format!("{prefix}:plex:{value}"));
+            }
+            if let Some(value) = tmdb_number(ids.tmdb.as_deref()) {
+                keys.push(format!("{prefix}:tmdb:{value}"));
+            }
+            if let Some(value) = non_empty(ids.tvdb.as_deref()) {
+                keys.push(format!("{prefix}:tvdb:{value}"));
+            }
+            if let Some(value) = non_empty(ids.imdb.as_deref()) {
+                keys.push(format!("{prefix}:imdb:{value}"));
+            }
+            if let Some(value) = non_empty(Some(title.trim())) {
+                keys.push(format!("{prefix}:title:{}", value.to_lowercase()));
+            }
+        };
+        match media {
+            MediaRef::Movie(movie) => add(MediaKind::Movie, &movie.title, &movie.ids),
+            MediaRef::Episode(episode) => {
+                add(MediaKind::Show, &episode.show.title, &episode.show.ids);
+            }
+        }
+        keys.sort_unstable();
+        keys.dedup();
+        for key in keys {
+            sqlx::query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", key)
+                .execute(self.conn())
+                .await?;
+        }
+        Ok(())
+    }
+
+    /// A play of the item inside `window` around `at`. Senders deliver events out
+    /// of order, so the window looks forward and backward. A zero window matches nothing.
+    pub async fn play_near(
+        &mut self,
+        kind: TargetKind,
+        id: Uuid,
+        at: DateTime<Utc>,
+        window: Duration,
+    ) -> Result<Option<PlayRow>> {
+        let window = chrono::Duration::from_std(window)?;
+        Ok(sqlx::query_as!(
+            PlayRow,
+            r#"SELECT id, target_kind AS "target_kind: TargetKind", target_id, watched_at, source, account, player, external_id
+               FROM plays
+               WHERE target_kind = $1 AND target_id = $2 AND watched_at > $3 AND watched_at < $4
+               ORDER BY watched_at DESC LIMIT 1"#,
+            kind.as_str(),
+            id,
+            at - window,
+            at + window
+        )
+        .fetch_optional(self.conn())
         .await?)
     }
 
@@ -520,6 +639,61 @@ impl<C: DerefMut<Target = PgConnection>> Library<C> {
         .await?)
     }
 
+    /// Save the position, but keep a stored position that is newer than
+    /// `updated_at`. `None` means the stored position won and nothing changed.
+    /// Two requests for one item can overlap, so the comparison belongs in the
+    /// statement, not between a read and a write.
+    pub async fn set_progress_if_newer(
+        &mut self,
+        input: ProgressInput,
+    ) -> Result<Option<ProgressRow>> {
+        let updated_at = input.updated_at.unwrap_or_else(|| self.now());
+        Ok(sqlx::query_as!(
+            ProgressRow,
+            r#"INSERT INTO progress (target_kind, target_id, position_ms, duration_ms, state, account, player, updated_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+               ON CONFLICT (target_kind, target_id) DO UPDATE SET
+                 position_ms = EXCLUDED.position_ms,
+                 duration_ms = COALESCE(EXCLUDED.duration_ms, progress.duration_ms),
+                 state = EXCLUDED.state,
+                 account = EXCLUDED.account,
+                 player = EXCLUDED.player,
+                 updated_at = EXCLUDED.updated_at
+               WHERE progress.updated_at <= EXCLUDED.updated_at
+               RETURNING target_kind AS "target_kind: TargetKind", target_id, position_ms, duration_ms, state AS "state: PlayState",
+                         account, player, updated_at"#,
+            input.kind.as_str(),
+            input.id,
+            to_millis(input.position),
+            millis(input.duration),
+            input.state.as_str(),
+            input.account,
+            input.player,
+            updated_at
+        )
+        .fetch_optional(self.conn())
+        .await?)
+    }
+
+    /// Delete the position unless it is newer than `at`. A play clears the
+    /// position, but never a position that a later event already wrote.
+    pub async fn clear_progress_if_older(
+        &mut self,
+        kind: TargetKind,
+        id: Uuid,
+        at: DateTime<Utc>,
+    ) -> Result<()> {
+        sqlx::query!(
+            "DELETE FROM progress WHERE target_kind = $1 AND target_id = $2 AND updated_at <= $3",
+            kind.as_str(),
+            id,
+            at
+        )
+        .execute(self.conn())
+        .await?;
+        Ok(())
+    }
+
     pub async fn clear_progress(&mut self, kind: TargetKind, id: Uuid) -> Result<()> {
         sqlx::query!(
             "DELETE FROM progress WHERE target_kind = $1 AND target_id = $2",
@@ -532,6 +706,67 @@ impl<C: DerefMut<Target = PgConnection>> Library<C> {
     }
 
     // endregion: progress
+
+    // region: generic scrobble events
+
+    /// The item a retained sender event already applied to, if this `event_id`
+    /// committed before.
+    pub async fn scrobble_event_target(
+        &mut self,
+        event_id: Uuid,
+    ) -> Result<Option<(TargetKind, Uuid)>> {
+        Ok(sqlx::query!(
+            r#"SELECT target_kind AS "target_kind: TargetKind", target_id
+               FROM scrobble_events WHERE event_id = $1"#,
+            event_id
+        )
+        .fetch_optional(self.conn())
+        .await?
+        .map(|row| (row.target_kind, row.target_id)))
+    }
+
+    /// The newest retained event time for an item, including an unwatch
+    /// that removed its progress and plays. A backfilled watch stores the
+    /// play time, not the delivery time.
+    pub async fn last_scrobble_event_at(
+        &mut self,
+        kind: TargetKind,
+        id: Uuid,
+    ) -> Result<Option<DateTime<Utc>>> {
+        Ok(sqlx::query_scalar!(
+            "SELECT MAX(occurred_at) FROM scrobble_events WHERE target_kind = $1 AND target_id = $2",
+            kind.as_str(),
+            id
+        )
+        .fetch_one(self.conn())
+        .await?)
+    }
+
+    /// Retain an applied or safely ignored sender event for idempotency and
+    /// event ordering. `occurred_at` is the watermark time: the play of a
+    /// backfilled watch, else the sender time. The target lock serializes
+    /// inserts for one item.
+    pub async fn record_scrobble_event(
+        &mut self,
+        event_id: Uuid,
+        kind: TargetKind,
+        id: Uuid,
+        occurred_at: DateTime<Utc>,
+    ) -> Result<()> {
+        sqlx::query!(
+            "INSERT INTO scrobble_events (event_id, target_kind, target_id, occurred_at)
+             VALUES ($1, $2, $3, $4)",
+            event_id,
+            kind.as_str(),
+            id,
+            occurred_at
+        )
+        .execute(self.conn())
+        .await?;
+        Ok(())
+    }
+
+    // endregion: generic scrobble events
 
     // region: ratings
 
