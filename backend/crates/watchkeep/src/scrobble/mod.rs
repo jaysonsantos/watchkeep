@@ -383,6 +383,20 @@ fn plex_account_allowed(config: &Config, event: &PlexEvent) -> bool {
     )
 }
 
+fn retain_scrobble_event(event: &ScrobbleEvent, action: ScrobbleAction) -> bool {
+    if action == ScrobbleAction::DuplicateEvent {
+        return false;
+    }
+    matches!(
+        event.event,
+        ScrobbleEventName::Watched | ScrobbleEventName::Unwatched
+    ) || (event.event == ScrobbleEventName::Stop
+        && matches!(
+            action,
+            ScrobbleAction::Play | ScrobbleAction::DuplicatePlay | ScrobbleAction::StaleEvent
+        ))
+}
+
 /// One point per event that the scrobbler applied, for both sources. Both
 /// labels are words of an enum, so the cardinality stays small.
 fn count_scrobble(event: &str, action: &str) {
@@ -574,6 +588,18 @@ impl Scrobbler {
                     None => None,
                 };
                 if let Some(stale) = stale {
+                    if let Some(target) = &existing
+                        && retain_scrobble_event(event, stale.action)
+                    {
+                        library
+                            .record_scrobble_event(
+                                event.event_id,
+                                target.kind,
+                                target.id,
+                                event.watermark_at(),
+                            )
+                            .await?;
+                    }
                     stale
                 } else {
                     let target = upsert_target(&mut library, &media).await?;
@@ -673,15 +699,8 @@ impl Scrobbler {
                 Self::scrobble_unwatched(library, event, target).await?
             }
         };
-        let retain_event = matches!(
-            event.event,
-            ScrobbleEventName::Watched | ScrobbleEventName::Unwatched
-        ) || (event.event == ScrobbleEventName::Stop
-            && matches!(
-                result.action,
-                ScrobbleAction::Play | ScrobbleAction::DuplicatePlay
-            ));
-        if retain_event && result.action != ScrobbleAction::DuplicateEvent {
+        let retain_event = retain_scrobble_event(event, result.action);
+        if retain_event {
             library
                 .record_scrobble_event(event.event_id, target.kind, target.id, event.watermark_at())
                 .await?;

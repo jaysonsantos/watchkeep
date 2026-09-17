@@ -7,7 +7,8 @@ use std::time::Duration;
 use axum::http::header::CONTENT_TYPE;
 use axum::http::{HeaderName, HeaderValue, Method, StatusCode};
 use common::{
-    at, call, json_request, scrobble_episode, scrobble_movie, scrobble_request, send, test_context,
+    at, call, json_request, request, scrobble_episode, scrobble_movie, scrobble_request, send,
+    test_context,
 };
 use eyre::Result;
 use serde_json::{Value, json};
@@ -298,6 +299,50 @@ async fn a_late_play_keeps_a_newer_position() -> Result<()> {
         .expect("the newer position stays");
     assert_eq!(progress.position(), Duration::from_secs(600));
     assert_eq!(progress.updated_at, at("2026-01-01T13:00:00Z"));
+    drop(library);
+    t.close().await
+}
+
+#[tokio::test]
+async fn a_retried_stale_watch_stays_a_duplicate_after_manual_unwatch() -> Result<()> {
+    let t = test_context(|_| {}, false).await?;
+    let app = t.app();
+    let (_, body) = call(
+        &app,
+        scrobble_request(&scrobble_movie(json!({
+            "occurred_at": "2026-01-01T13:00:00Z",
+            "position_ms": 600_000,
+        }))),
+    )
+    .await;
+    let movie = body["targetId"].as_str().expect("an id").parse()?;
+    let movie_id = body["targetId"].as_str().expect("an id").to_owned();
+
+    let mut late = scrobble_movie(json!({
+        "event": "watched",
+        "occurred_at": "2026-01-01T12:10:00Z",
+        "position_ms": null,
+    }));
+    late["event_id"] = other_id()["event_id"].clone();
+    let (_, body) = call(&app, scrobble_request(&late)).await;
+    assert_eq!(body["action"], "stale-event");
+
+    let (status, _) = call(
+        &app,
+        request(Method::DELETE, &format!("/api/movies/{movie_id}/watched")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, body) = call(&app, scrobble_request(&late)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["action"], "duplicate-event");
+    let mut library = t.library().await?;
+    assert_eq!(
+        library.play_count(TargetKind::Movie, movie).await?,
+        0,
+        "a retry of the stale watch must not recreate the play"
+    );
     drop(library);
     t.close().await
 }
