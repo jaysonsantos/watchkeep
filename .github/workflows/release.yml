@@ -37,6 +37,14 @@ jobs:
           # The whole history and every tag, because git-cliff reads the commits since the last tag.
           fetch-depth: 0
 
+      - name: Refuse a manual run outside the default branch
+        # `gh workflow run --ref` and the Actions page can name any branch. A
+        # release of unmerged code must not reach the registry.
+        if: github.event_name == 'workflow_dispatch' && github.ref_name != github.event.repository.default_branch
+        run: |
+          echo "A manual release runs on the default branch only." >&2
+          exit 1
+
       - if: github.event_name == 'workflow_dispatch'
         uses: DeterminateSystems/nix-installer-action@main
 
@@ -52,7 +60,8 @@ jobs:
           else
             nix develop --command scripts/release.sh
           fi
-          git push --follow-tags
+          # `--atomic`, so that a rejected branch update leaves no tag behind.
+          git push --atomic --follow-tags
 
       - id: pick
         name: Name the tag of this release
