@@ -264,9 +264,11 @@ pub async fn resolve_target<C: DerefMut<Target = PgConnection>>(
 ) -> Result<ResolvedTarget> {
     match media {
         MediaRef::Movie(movie) => {
-            let movie = library
-                .upsert_movie(&enrich_movie(catalog, movie).await?)
+            let movie = enrich_movie(catalog, movie).await?;
+            library
+                .lock_media_identity(&MediaRef::Movie(movie.clone()))
                 .await?;
+            let movie = library.upsert_movie(&movie).await?;
             let title = match movie.year.filter(|year| *year != 0) {
                 Some(year) => format!("{} ({year})", movie.title),
                 None => movie.title.clone(),
@@ -281,6 +283,9 @@ pub async fn resolve_target<C: DerefMut<Target = PgConnection>>(
         }
         MediaRef::Episode(episode) => {
             let enriched = enrich_episode(catalog, episode).await?;
+            library
+                .lock_media_identity(&MediaRef::Episode(enriched.clone()))
+                .await?;
             let show = library.upsert_show(&enriched.show).await?;
             let episode = library.upsert_episode(show.id, &enriched).await?;
             let code = episode_code(episode.season, episode.number);
@@ -481,29 +486,65 @@ impl Scrobbler {
         let mut tx = self.pool.begin().await?;
         let result = {
             let mut library = Library::new(&mut *tx, self.clock.clone());
+            library.lock_scrobble_event(event.event_id).await?;
             let target = resolve_target(&mut library, self.catalog.as_ref(), media).await?;
             // Every branch below reads the plays or the position and then
             // writes. Two events of one item must not interleave between the
             // read and the write, else two plays land inside the rewatch
             // window, or a position re-opens an item that a play just closed.
             library.lock_target(target.kind, target.id).await?;
-            match event.event {
-                ScrobbleEventName::Start | ScrobbleEventName::Progress => {
-                    self.scrobble_progress(&mut library, event, &target, PlayState::Playing)
-                        .await?
+            let result = if library.scrobble_event_exists(event.event_id).await? {
+                ScrobbleResult {
+                    action: ScrobbleAction::DuplicateEvent,
+                    target_kind: target.kind,
+                    target_id: Some(target.id),
+                    title: target.title.clone(),
+                    position_ms: None,
+                    percent: None,
                 }
-                ScrobbleEventName::Pause => {
-                    self.scrobble_progress(&mut library, event, &target, PlayState::Paused)
-                        .await?
+            } else if library
+                .last_scrobble_event_at(target.kind, target.id)
+                .await?
+                .is_some_and(|at| event.occurred_at < at)
+            {
+                match library.get_progress(target.kind, target.id).await? {
+                    Some(stored) if event.occurred_at < stored.updated_at => {
+                        Self::stale_result(&target, &stored)
+                    }
+                    _ => Self::stale_result_without_progress(&target),
                 }
-                ScrobbleEventName::Stop => self.scrobble_stop(&mut library, event, &target).await?,
-                ScrobbleEventName::Watched => {
-                    self.scrobble_play(&mut library, event, &target).await?
+            } else {
+                match event.event {
+                    ScrobbleEventName::Start | ScrobbleEventName::Progress => {
+                        self.scrobble_progress(&mut library, event, &target, PlayState::Playing)
+                            .await?
+                    }
+                    ScrobbleEventName::Pause => {
+                        self.scrobble_progress(&mut library, event, &target, PlayState::Paused)
+                            .await?
+                    }
+                    ScrobbleEventName::Stop => {
+                        self.scrobble_stop(&mut library, event, &target).await?
+                    }
+                    ScrobbleEventName::Watched => {
+                        self.scrobble_play(&mut library, event, &target).await?
+                    }
+                    ScrobbleEventName::Unwatched => {
+                        Self::scrobble_unwatched(&mut library, event, &target).await?
+                    }
                 }
-                ScrobbleEventName::Unwatched => {
-                    Self::scrobble_unwatched(&mut library, event, &target).await?
-                }
+            };
+            if result.action != ScrobbleAction::DuplicateEvent {
+                library
+                    .record_scrobble_event(
+                        event.event_id,
+                        target.kind,
+                        target.id,
+                        event.occurred_at,
+                    )
+                    .await?;
             }
+            result
         };
         tx.commit().await?;
         Ok(result)
@@ -538,6 +579,17 @@ impl Scrobbler {
             title: target.title.clone(),
             position_ms: Some(to_millis(position)),
             percent: percent_of(position, stored.duration()),
+        }
+    }
+
+    fn stale_result_without_progress(target: &ResolvedTarget) -> ScrobbleResult {
+        ScrobbleResult {
+            action: ScrobbleAction::StaleEvent,
+            target_kind: target.kind,
+            target_id: Some(target.id),
+            title: target.title.clone(),
+            position_ms: None,
+            percent: None,
         }
     }
 
@@ -669,7 +721,7 @@ impl Scrobbler {
             .await?
             .is_some();
         library
-            .clear_progress_if_older(target.kind, target.id, event.occurred_at)
+            .clear_progress_if_older(target.kind, target.id, played_at)
             .await?;
         if duplicate {
             return Ok(result(ScrobbleAction::DuplicatePlay));

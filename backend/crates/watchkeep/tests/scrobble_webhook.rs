@@ -277,7 +277,7 @@ async fn a_retry_of_a_suppressed_play_stays_suppressed() -> Result<()> {
     // though the newest play is now younger than the event.
     let (status, body) = call(&app, watched(inside, "2026-01-01T13:00:00Z")).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["action"], "duplicate-play");
+    assert_eq!(body["action"], "duplicate-event");
     let mut library = t.library().await?;
     assert_eq!(library.play_count(TargetKind::Movie, movie).await?, 2);
     drop(library);
@@ -329,6 +329,49 @@ async fn a_late_unwatched_keeps_a_newer_position() -> Result<()> {
             .expect("the newer position stays")
             .position(),
         Duration::from_secs(600)
+    );
+    drop(library);
+    t.close().await
+}
+
+#[tokio::test]
+async fn an_unwatched_event_keeps_older_progress_stale() -> Result<()> {
+    let t = test_context(|_| {}, false).await?;
+    let app = t.app();
+    let (_, first) = call(
+        &app,
+        scrobble_request(&scrobble_movie(json!({
+            "occurred_at": "2026-01-01T12:00:00Z",
+            "position_ms": 600_000,
+        }))),
+    )
+    .await;
+    let movie = first["targetId"].as_str().expect("an id").parse()?;
+
+    let mut unwatched = scrobble_movie(json!({
+        "event": "unwatched",
+        "occurred_at": "2026-01-01T13:00:00Z",
+        "position_ms": null,
+    }));
+    unwatched["event_id"] = other_id()["event_id"].clone();
+    let (_, body) = call(&app, scrobble_request(&unwatched)).await;
+    assert_eq!(body["action"], "unwatched");
+
+    let mut old_progress = scrobble_movie(json!({
+        "occurred_at": "2026-01-01T12:30:00Z",
+        "position_ms": 700_000,
+    }));
+    old_progress["event_id"] = json!("01926f3d-3e4f-7051-8c6d-7e8f9a0b1c2d");
+    let (status, body) = call(&app, scrobble_request(&old_progress)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["action"], "stale-event");
+    let mut library = t.library().await?;
+    assert!(
+        library
+            .get_progress(TargetKind::Movie, movie)
+            .await?
+            .is_none(),
+        "the old position must not undo the unwatch"
     );
     drop(library);
     t.close().await
@@ -493,12 +536,50 @@ async fn a_retried_unwatched_keeps_a_newer_play() -> Result<()> {
 
     let (status, body) = call(&app, scrobble_request(&unwatch)).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["action"], "stale-event");
+    assert_eq!(body["action"], "duplicate-event");
     let mut library = t.library().await?;
     assert_eq!(
         library.play_count(TargetKind::Movie, movie).await?,
         1,
         "the retry must not delete the newer play"
+    );
+    drop(library);
+    t.close().await
+}
+
+#[tokio::test]
+async fn backfilling_a_play_keeps_progress_from_a_later_session() -> Result<()> {
+    let t = test_context(|_| {}, false).await?;
+    let app = t.app();
+    let (_, progress) = call(
+        &app,
+        scrobble_request(&scrobble_movie(json!({
+            "occurred_at": "2026-01-02T12:00:00Z",
+            "position_ms": 600_000,
+        }))),
+    )
+    .await;
+    let movie = progress["targetId"].as_str().expect("an id").parse()?;
+
+    let mut backfill = scrobble_movie(json!({
+        "event": "watched",
+        "occurred_at": "2026-01-03T12:00:00Z",
+        "watched_at": "2026-01-01T12:00:00Z",
+        "position_ms": null,
+    }));
+    backfill["event_id"] = other_id()["event_id"].clone();
+    let (status, body) = call(&app, scrobble_request(&backfill)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["action"], "play");
+    let mut library = t.library().await?;
+    assert_eq!(library.play_count(TargetKind::Movie, movie).await?, 1);
+    assert_eq!(
+        library
+            .get_progress(TargetKind::Movie, movie)
+            .await?
+            .expect("the later session stays")
+            .position(),
+        Duration::from_secs(600)
     );
     drop(library);
     t.close().await
@@ -649,6 +730,33 @@ async fn overlapping_plays_of_one_item_count_once() -> Result<()> {
     let mut library = t.library().await?;
     assert_eq!(library.play_count(TargetKind::Movie, movie).await?, 1);
     drop(library);
+    t.close().await
+}
+
+#[tokio::test]
+async fn overlapping_first_deliveries_create_one_title_only_item() -> Result<()> {
+    let t = test_context(|_| {}, false).await?;
+    let app = t.app();
+    let body = |event_id: &str| {
+        json!({
+            "event_id": event_id,
+            "event": "progress",
+            "occurred_at": common::START,
+            "client": "my-media-server",
+            "media": { "type": "movie", "title": "Identity Race" },
+            "position_ms": 60_000
+        })
+    };
+    let first = body("01926f3b-1c2d-7e3f-8a4b-5c6d7e8f9a0b");
+    let second = body("01926f3c-2d3e-7f40-9b5c-6d7e8f9a0b1c");
+    let (first, second) = tokio::join!(
+        call(&app, scrobble_request(&first)),
+        call(&app, scrobble_request(&second))
+    );
+    assert_eq!(first.0, StatusCode::OK);
+    assert_eq!(second.0, StatusCode::OK);
+    assert_eq!(first.1["targetId"], second.1["targetId"]);
+    assert_eq!(t.queries.stats().await?.movies, 1);
     t.close().await
 }
 

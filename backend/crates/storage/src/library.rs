@@ -21,6 +21,10 @@ use crate::model::{
 /// The `event` column of a webhook log row when the payload had no event name.
 pub const UNKNOWN_EVENT: &str = "unknown";
 
+const IDENTITY_LOCK_PREFIX: &str = "media-identity";
+const SCROBBLE_EVENT_LOCK_PREFIX: &str = "scrobble-event";
+const TARGET_LOCK_PREFIX: &str = "target";
+
 pub struct PlayInput {
     pub kind: TargetKind,
     pub id: Uuid,
@@ -457,10 +461,60 @@ impl<C: DerefMut<Target = PgConnection>> Library<C> {
     /// the same item. The lock is advisory and transaction scoped: it needs a
     /// transaction, and it never outlives one.
     pub async fn lock_target(&mut self, kind: TargetKind, id: Uuid) -> Result<()> {
-        let key = format!("{}:{id}", kind.as_str());
+        let key = format!("{TARGET_LOCK_PREFIX}:{}:{id}", kind.as_str());
         sqlx::query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", key)
             .execute(self.conn())
             .await?;
+        Ok(())
+    }
+
+    /// Hold a sender event id until the transaction ends, so two deliveries
+    /// cannot both pass the processed-event check.
+    pub async fn lock_scrobble_event(&mut self, event_id: Uuid) -> Result<()> {
+        let key = format!("{SCROBBLE_EVENT_LOCK_PREFIX}:{event_id}");
+        sqlx::query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", key)
+            .execute(self.conn())
+            .await?;
+        Ok(())
+    }
+
+    /// Hold every identity supplied for an item until the transaction ends.
+    /// Sorting the keys gives concurrent requests the same lock order. This
+    /// must run before the media upsert, so two first deliveries cannot both
+    /// decide that the item does not exist.
+    pub async fn lock_media_identity(&mut self, media: &MediaRef) -> Result<()> {
+        let mut keys = Vec::new();
+        let mut add = |kind: MediaKind, title: &str, ids: &ExternalIds| {
+            let prefix = format!("{IDENTITY_LOCK_PREFIX}:{}", kind.as_str());
+            if let Some(value) = non_empty(ids.plex_guid.as_deref()) {
+                keys.push(format!("{prefix}:plex:{value}"));
+            }
+            if let Some(value) = tmdb_number(ids.tmdb.as_deref()) {
+                keys.push(format!("{prefix}:tmdb:{value}"));
+            }
+            if let Some(value) = non_empty(ids.tvdb.as_deref()) {
+                keys.push(format!("{prefix}:tvdb:{value}"));
+            }
+            if let Some(value) = non_empty(ids.imdb.as_deref()) {
+                keys.push(format!("{prefix}:imdb:{value}"));
+            }
+            if let Some(value) = non_empty(Some(title.trim())) {
+                keys.push(format!("{prefix}:title:{}", value.to_lowercase()));
+            }
+        };
+        match media {
+            MediaRef::Movie(movie) => add(MediaKind::Movie, &movie.title, &movie.ids),
+            MediaRef::Episode(episode) => {
+                add(MediaKind::Show, &episode.show.title, &episode.show.ids);
+            }
+        }
+        keys.sort_unstable();
+        keys.dedup();
+        for key in keys {
+            sqlx::query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", key)
+                .execute(self.conn())
+                .await?;
+        }
         Ok(())
     }
 
@@ -647,6 +701,58 @@ impl<C: DerefMut<Target = PgConnection>> Library<C> {
     }
 
     // endregion: progress
+
+    // region: generic scrobble events
+
+    /// True when this sender event committed before.
+    pub async fn scrobble_event_exists(&mut self, event_id: Uuid) -> Result<bool> {
+        Ok(sqlx::query_scalar!(
+            r#"SELECT EXISTS(SELECT 1 FROM scrobble_events WHERE event_id = $1) AS "exists!""#,
+            event_id
+        )
+        .fetch_one(self.conn())
+        .await?)
+    }
+
+    /// The newest delivery time retained for an item, including an unwatch
+    /// that removed its progress and plays.
+    pub async fn last_scrobble_event_at(
+        &mut self,
+        kind: TargetKind,
+        id: Uuid,
+    ) -> Result<Option<DateTime<Utc>>> {
+        Ok(sqlx::query_scalar!(
+            "SELECT MAX(occurred_at) FROM scrobble_events WHERE target_kind = $1 AND target_id = $2",
+            kind.as_str(),
+            id
+        )
+        .fetch_one(self.conn())
+        .await?)
+    }
+
+    /// Retain an applied or safely ignored sender event for idempotency and
+    /// event ordering. The target lock serializes inserts for one item.
+    pub async fn record_scrobble_event(
+        &mut self,
+        event_id: Uuid,
+        kind: TargetKind,
+        id: Uuid,
+        occurred_at: DateTime<Utc>,
+    ) -> Result<()> {
+        sqlx::query!(
+            "INSERT INTO scrobble_events (event_id, target_kind, target_id, occurred_at)
+             VALUES ($1, $2, $3, $4)",
+            event_id,
+            kind.as_str(),
+            id,
+            occurred_at
+        )
+        .execute(self.conn())
+        .await?;
+        Ok(())
+    }
+
+    // endregion: generic scrobble events
 
     // region: ratings
 
