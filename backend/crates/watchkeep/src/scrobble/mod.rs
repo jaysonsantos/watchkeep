@@ -407,6 +407,9 @@ impl Scrobbler {
             let mut library = Library::new(&mut *tx, self.clock.clone());
             let target =
                 resolve_target(&mut library, self.catalog.as_ref(), event.media.clone()).await?;
+            // Same as the generic path: identity locks can differ by sender,
+            // so the resolved item must serialize play and progress writes.
+            library.lock_target(target.kind, target.id).await?;
             match event.event {
                 PlexEventName::Rate => self.rate(&mut library, event, &target).await?,
                 PlexEventName::Scrobble => {
@@ -505,7 +508,7 @@ impl Scrobbler {
             } else if library
                 .last_scrobble_event_at(target.kind, target.id)
                 .await?
-                .is_some_and(|at| event.occurred_at < at)
+                .is_some_and(|at| event.watermark_at() < at)
             {
                 match library.get_progress(target.kind, target.id).await? {
                     Some(stored) if event.occurred_at < stored.updated_at => {

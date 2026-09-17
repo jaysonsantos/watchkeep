@@ -586,6 +586,50 @@ async fn backfilling_a_play_keeps_progress_from_a_later_session() -> Result<()> 
 }
 
 #[tokio::test]
+async fn a_late_backfill_does_not_restore_a_play_after_unwatch() -> Result<()> {
+    let t = test_context(|_| {}, false).await?;
+    let app = t.app();
+    let (_, body) = call(
+        &app,
+        scrobble_request(&scrobble_movie(json!({
+            "event": "watched",
+            "occurred_at": "2026-01-01T12:00:00Z",
+            "position_ms": null,
+        }))),
+    )
+    .await;
+    let movie = body["targetId"].as_str().expect("an id").parse()?;
+
+    let mut unwatched = scrobble_movie(json!({
+        "event": "unwatched",
+        "occurred_at": "2026-01-02T12:00:00Z",
+        "position_ms": null,
+    }));
+    unwatched["event_id"] = other_id()["event_id"].clone();
+    let (_, body) = call(&app, scrobble_request(&unwatched)).await;
+    assert_eq!(body["action"], "unwatched");
+
+    let mut backfill = scrobble_movie(json!({
+        "event": "watched",
+        "occurred_at": "2026-01-03T12:00:00Z",
+        "watched_at": "2026-01-01T12:00:00Z",
+        "position_ms": null,
+    }));
+    backfill["event_id"] = json!("01926f3d-3e4f-7051-8c6d-7e8f9a0b1c2d");
+    let (status, body) = call(&app, scrobble_request(&backfill)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["action"], "stale-event");
+    let mut library = t.library().await?;
+    assert_eq!(
+        library.play_count(TargetKind::Movie, movie).await?,
+        0,
+        "the delayed backfill must not undo the unwatch"
+    );
+    drop(library);
+    t.close().await
+}
+
+#[tokio::test]
 async fn a_late_backfill_does_not_hide_later_progress() -> Result<()> {
     let t = test_context(|_| {}, false).await?;
     let app = t.app();
