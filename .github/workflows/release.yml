@@ -133,5 +133,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.tag.outputs.tag }}
         run: |
-          git tag --list "$TAG" --format='%(contents:body)' > "$RUNNER_TEMP/notes.md"
-          gh release create "$TAG" --verify-tag --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md"
+          # `%(contents)`, because git takes the first line of the annotation as the
+          # subject and `%(contents:body)` would drop the first heading of the notes.
+          git tag --list "$TAG" --format='%(contents)' |
+            gh release create "$TAG" --verify-tag --title "$TAG" --notes-file -
