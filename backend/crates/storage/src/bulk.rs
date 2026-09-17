@@ -176,10 +176,13 @@ impl<T: MediaKeys> MediaIndex<T> {
         if let Some(imdb) = non_empty(item.imdb_id()) {
             self.by_imdb.insert(imdb.to_owned(), index);
         }
-        self.by_title
-            .entry(item.title().to_lowercase())
-            .or_default()
-            .push(index);
+        // A blank title is no identity, the same as in `Library::find_media`.
+        if !item.title().trim().is_empty() {
+            self.by_title
+                .entry(item.title().to_lowercase())
+                .or_default()
+                .push(index);
+        }
         self.items.push(item);
         index
     }
@@ -193,6 +196,9 @@ impl<T: MediaKeys> MediaIndex<T> {
             .or_else(|| non_empty(ids.imdb.as_deref()).and_then(|imdb| self.by_imdb.get(imdb)));
         if let Some(index) = found {
             return Some(*index);
+        }
+        if input.title().trim().is_empty() {
+            return None;
         }
         let candidates = self.by_title.get(&input.title().to_lowercase())?;
         candidates

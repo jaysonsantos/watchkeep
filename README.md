@@ -141,7 +141,7 @@ The token also goes into the `x-webhook-token` header. The body is
 | `player` | no | The device. The default is `client`. |
 | `media.type` | yes | `movie` or `episode`. |
 | `media.title`, `media.year` | no | The identity when no id matches. |
-| `media.ids` | no | `tmdb`, `imdb`, and `tvdb` of the movie or of the episode. |
+| `media.ids` | no | `tmdb`, `imdb`, and `tvdb` of the movie or of the episode. `tmdb` and `tvdb` must be positive numbers; Watchkeep drops any other value. |
 | `media.show` | for episodes | `title`, `year`, and `ids` of the show. The show needs a title or an id of its own. |
 | `media.season`, `media.number` | for episodes | Season and episode number in TMDB order. |
 | `position_ms` | for `start`, `progress`, `pause`, `stop` | The playback position. |

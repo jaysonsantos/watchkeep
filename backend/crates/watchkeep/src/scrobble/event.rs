@@ -104,10 +104,11 @@ fn id_text(id: Option<&ScrobbleId>) -> Option<String> {
     (!text.is_empty()).then(|| text.to_owned())
 }
 
-/// A TMDB id that the storage layer keeps. `0`, a negative number, and text
-/// that is not a number give `None`: they name no item, and a row that holds
-/// one of them could never match again.
-fn tmdb_text(id: Option<&ScrobbleId>) -> Option<String> {
+/// A numeric provider id that the storage layer keeps. TMDB and TVDB ids are
+/// positive numbers, so `0`, a negative number, and text that is not a number
+/// give `None`: they name no item, and a row that holds one of them would match
+/// every other row that holds the same placeholder.
+fn number_text(id: Option<&ScrobbleId>) -> Option<String> {
     tmdb_number(id_text(id).as_deref()).map(|id| id.to_string())
 }
 
@@ -121,8 +122,8 @@ impl ScrobbleIds {
         ExternalIds {
             plex_guid: None,
             imdb: non_empty(self.imdb.as_deref().map(str::trim)).map(str::to_owned),
-            tmdb: tmdb_text(self.tmdb.as_ref()),
-            tvdb: id_text(self.tvdb.as_ref()),
+            tmdb: number_text(self.tmdb.as_ref()),
+            tvdb: number_text(self.tvdb.as_ref()),
         }
     }
 }

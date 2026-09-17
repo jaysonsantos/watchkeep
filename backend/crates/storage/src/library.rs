@@ -263,7 +263,9 @@ impl<C: DerefMut<Target = PgConnection>> Library<C> {
                          duration_ms, summary, poster_path, hidden_at, created_at, updated_at"#,
             new_id(now),
             kind.as_str(),
-            input.title,
+            // `find_media` trims before it matches, so a padded title would
+            // never match its own row again.
+            input.title.trim(),
             input.year,
             input.ids.plex_guid.as_deref(),
             input.ids.imdb.as_deref(),

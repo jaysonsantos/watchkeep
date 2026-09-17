@@ -764,26 +764,28 @@ async fn refuses_a_position_that_is_not_a_position() -> Result<()> {
 }
 
 #[tokio::test]
-async fn refuses_a_tmdb_id_that_names_nothing() -> Result<()> {
+async fn refuses_a_tmdb_or_tvdb_id_that_names_nothing() -> Result<()> {
     let t = test_context(|_| {}, false).await?;
     let app = t.app();
-    for id in [json!(0), json!(-5), json!("not-a-number")] {
-        let (status, _) = call(
-            &app,
-            scrobble_request(&json!({
-                "event_id": "01926f3b-1c2d-7e3f-8a4b-5c6d7e8f9a0b",
-                "event": "watched",
-                "occurred_at": common::START,
-                "client": "my-media-server",
-                "media": { "type": "movie", "ids": { "tmdb": id } }
-            })),
-        )
-        .await;
-        assert_eq!(
-            status,
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "{id} is not an identity"
-        );
+    for provider in ["tmdb", "tvdb"] {
+        for id in [json!(0), json!(-5), json!("not-a-number")] {
+            let (status, _) = call(
+                &app,
+                scrobble_request(&json!({
+                    "event_id": "01926f3b-1c2d-7e3f-8a4b-5c6d7e8f9a0b",
+                    "event": "watched",
+                    "occurred_at": common::START,
+                    "client": "my-media-server",
+                    "media": { "type": "movie", "ids": { provider: id } }
+                })),
+            )
+            .await;
+            assert_eq!(
+                status,
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "{provider} {id} is not an identity"
+            );
+        }
     }
     assert_eq!(t.queries.stats().await?.movies, 0);
     t.close().await
