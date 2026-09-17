@@ -22,7 +22,9 @@ use eyre::Result;
 use serde::Serialize;
 use tracing::{Span, field, instrument};
 use uuid::Uuid;
-use watchkeep_catalog::{Candidate, Catalog, CatalogMovie, CatalogShow, GenreWeights, TasteFacts};
+use watchkeep_catalog::{
+    CANDIDATE_GROUP_GENRES, Candidate, Catalog, CatalogMovie, CatalogShow, GenreWeights, TasteFacts,
+};
 use watchkeep_storage::clock::{SharedClock, date_of};
 use watchkeep_storage::model::MediaKind;
 use watchkeep_storage::queries::{Queries, TasteItem};
@@ -61,8 +63,9 @@ const LANGUAGE_BONUS: f64 = 0.5;
 /// The top of the TMDB rating scale. It turns the quality into a factor from 0 to 1.
 const MAX_CATALOG_RATING: f64 = 10.0;
 
-/// How many genres the reason line of one recommendation names.
-const MAX_REASON_GENRES: usize = 2;
+/// How many genres the reason line of one recommendation names. The candidate
+/// query groups by the same count, so a SQL cap per group matches this list.
+const MAX_REASON_GENRES: usize = CANDIDATE_GROUP_GENRES as usize;
 
 /// The reason of a show that is complete and still makes episodes.
 const RETURNING_REASON: &str = "New episodes in production";
@@ -80,9 +83,10 @@ const MAX_PER_GENRE_SET: usize = 3;
 /// series does not fill it.
 const MAX_PER_COLLECTION: usize = 2;
 
-/// How many rows a candidate query returns. The final score re-ranks them and
-/// the caps drop some of them, so the query returns more rows than the page shows.
-const CANDIDATE_LIMIT: i64 = 200;
+/// How many rows a candidate query returns. The query already keeps only
+/// `MAX_PER_GENRE_SET` rows per genre group, so this cut no longer hides a
+/// second pair behind one that would have filled the window.
+pub const CANDIDATE_LIMIT: i64 = 200;
 
 /// How many genres and how many languages the taste profile reports.
 const PROFILE_TOP: usize = 5;
@@ -421,20 +425,32 @@ impl Recommender {
         let movie_genres = unit_vector(&taste.movie_genres);
         let show_genres = unit_vector(&taste.show_genres);
         let collection_ids = taste.collection_ids();
-        let (movies, shows, collection_movies) = tokio::try_join!(
-            catalog.movie_candidates(&movie_genres, &taste.movie_ids, today, CANDIDATE_LIMIT),
-            catalog.show_candidates(&show_genres, &taste.show_ids, today, CANDIDATE_LIMIT),
-            catalog.collection_movies(&collection_ids, &taste.movie_ids, today, CANDIDATE_LIMIT),
-        )?;
+        // Collection movies have their own list. Exclude them from the genre
+        // query so a per-group cap there is not spent on a row that this list
+        // will drop.
+        let collection_movies = catalog
+            .collection_movies(&collection_ids, &taste.movie_ids, today, CANDIDATE_LIMIT)
+            .await?;
         let next_in_collection = self.collection_list(collection_movies, &taste);
+        let mut movie_exclude = taste.movie_ids.clone();
+        movie_exclude.extend(next_in_collection.iter().map(|item| item.item.tmdb_id));
+        let (movies, shows) = tokio::try_join!(
+            catalog.movie_candidates(
+                &movie_genres,
+                &movie_exclude,
+                today,
+                CANDIDATE_LIMIT,
+                MAX_PER_GENRE_SET as i64,
+            ),
+            catalog.show_candidates(
+                &show_genres,
+                &taste.show_ids,
+                today,
+                CANDIDATE_LIMIT,
+                MAX_PER_GENRE_SET as i64,
+            ),
+        )?;
         let returning = self.returning_list(catalog, &taste).await?;
-        // A movie of a collection has its own list, so it appears only once.
-        let listed: Vec<i64> = next_in_collection
-            .iter()
-            .map(|item| item.item.tmdb_id)
-            .collect();
-        let mut movies = movies;
-        movies.retain(|candidate| !listed.contains(&candidate.item.tmdb_id));
         Ok(Recommendations {
             profile: taste.profile(),
             movies: rank(movies, &taste, &taste.movie_genres, &genre_names.movies),

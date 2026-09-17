@@ -6,6 +6,7 @@ use eyre::Result;
 use serde_json::{Value, json};
 use sqlx::{AssertSqlSafe, PgPool};
 use uuid::Uuid;
+use watchkeep::recommend::CANDIDATE_LIMIT;
 use watchkeep_storage::model::RatingKind;
 
 const PATH: &str = "/api/recommendations";
@@ -69,6 +70,26 @@ async fn seed_crowd(pool: &PgPool) -> Result<()> {
                   (712, 'The Spy Who Returned', '1987-06-01', 1200, 6.8, 'en', 2000, 0, '{}'),
                   (713, 'The Spy Who Began', '1975-06-01', 1200, 6.7, 'en', 2000, 0, '{}');",
     ))
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// One more Action and Crime movie than `CANDIDATE_LIMIT`, all better rated
+/// than The Insider, so a query that only takes the first `CANDIDATE_LIMIT`
+/// rows never sees a second genre pair. See `seed_recommendations` for why
+/// these statements are plain SQL.
+async fn seed_flood(pool: &PgPool) -> Result<()> {
+    let extra = CANDIDATE_LIMIT + 1;
+    sqlx::raw_sql(AssertSqlSafe(format!(
+        "INSERT INTO tmdb_movie (id, title_en, release_date, vote_count, vote_average, original_language, fetched_at, raw_json)
+         SELECT 2000 + g, 'Crowd ' || g, '2000-01-01', 5000, 9.0, 'en', 0, '{{}}'
+         FROM generate_series(0, {extra} - 1) AS g;
+         INSERT INTO tmdb_movie_genre (movie_id, genre_id)
+         SELECT 2000 + g, 28 FROM generate_series(0, {extra} - 1) AS g
+         UNION ALL
+         SELECT 2000 + g, 80 FROM generate_series(0, {extra} - 1) AS g;"
+    )))
     .execute(pool)
     .await?;
     Ok(())
@@ -207,6 +228,31 @@ async fn gives_a_second_genre_pair_a_place_in_the_movie_list() -> Result<()> {
     assert!(
         movies.contains(&810),
         "Action and Drama gets a place, although every Action and Crime movie outranks it: {movies:?}"
+    );
+    t.close().await
+}
+
+/// The candidate query used to cut to `CANDIDATE_LIMIT` before the list cap,
+/// so one genre pair could hide every other pair past that cut.
+#[tokio::test]
+async fn keeps_a_second_genre_pair_past_the_candidate_limit() -> Result<()> {
+    let t = test_context(|_| {}, true).await?;
+    let catalog = t.catalog_pool.as_ref().expect("a catalog pool");
+    seed_recommendations(catalog).await?;
+    seed_crowd(catalog).await?;
+    seed_flood(catalog).await?;
+    t.scrobbler
+        .apply(&event(&movie_payload(
+            json!({ "event": "media.scrobble" }),
+            json!({}),
+        )))
+        .await?;
+
+    let (_, body) = get(&t.app(), PATH).await;
+    let movies = tmdb_ids(&body["movies"]);
+    assert!(
+        movies.contains(&810),
+        "Action and Drama sits past {CANDIDATE_LIMIT} Action and Crime movies: {movies:?}"
     );
     t.close().await
 }
