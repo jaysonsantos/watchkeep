@@ -614,6 +614,53 @@ async fn a_position_does_not_re_open_a_watched_item() -> Result<()> {
 }
 
 #[tokio::test]
+async fn a_retried_already_watched_progress_stays_a_duplicate_after_manual_unwatch() -> Result<()> {
+    let t = test_context(|_| {}, false).await?;
+    let app = t.app();
+    let (_, body) = call(
+        &app,
+        scrobble_request(&scrobble_movie(json!({
+            "event": "watched",
+            "occurred_at": "2026-01-01T12:00:00Z",
+            "position_ms": null,
+        }))),
+    )
+    .await;
+    let movie = body["targetId"].as_str().expect("an id").parse()?;
+    let movie_id = body["targetId"].as_str().expect("an id").to_owned();
+
+    let mut late = scrobble_movie(json!({
+        "occurred_at": "2026-01-01T12:05:00Z",
+        "position_ms": 600_000,
+    }));
+    late["event_id"] = other_id()["event_id"].clone();
+    let (_, body) = call(&app, scrobble_request(&late)).await;
+    assert_eq!(body["action"], "already-watched");
+
+    let (status, _) = call(
+        &app,
+        request(Method::DELETE, &format!("/api/movies/{movie_id}/watched")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, body) = call(&app, scrobble_request(&late)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["action"], "duplicate-event");
+    let mut library = t.library().await?;
+    assert!(
+        library
+            .get_progress(TargetKind::Movie, movie)
+            .await?
+            .is_none(),
+        "a retry of the already-watched progress must not restore the position"
+    );
+    assert_eq!(library.play_count(TargetKind::Movie, movie).await?, 0);
+    drop(library);
+    t.close().await
+}
+
+#[tokio::test]
 async fn a_retried_unwatched_keeps_a_newer_play() -> Result<()> {
     let t = test_context(|_| {}, false).await?;
     let app = t.app();

@@ -387,14 +387,16 @@ fn retain_scrobble_event(event: &ScrobbleEvent, action: ScrobbleAction) -> bool 
     if action == ScrobbleAction::DuplicateEvent {
         return false;
     }
-    matches!(
-        event.event,
-        ScrobbleEventName::Watched | ScrobbleEventName::Unwatched
-    ) || (event.event == ScrobbleEventName::Stop
-        && matches!(
-            action,
-            ScrobbleAction::Play | ScrobbleAction::DuplicatePlay | ScrobbleAction::StaleEvent
-        ))
+    action == ScrobbleAction::AlreadyWatched
+        || matches!(
+            event.event,
+            ScrobbleEventName::Watched | ScrobbleEventName::Unwatched
+        )
+        || (event.event == ScrobbleEventName::Stop
+            && matches!(
+                action,
+                ScrobbleAction::Play | ScrobbleAction::DuplicatePlay | ScrobbleAction::StaleEvent
+            ))
 }
 
 /// One point per event that the scrobbler applied, for both sources. Both
