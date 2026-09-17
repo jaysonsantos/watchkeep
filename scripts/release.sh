@@ -62,7 +62,8 @@ notes="$(git cliff --tag "$tag" --unreleased --strip all | sed "/^## \[/d")"
 
 git add -- "$cargo_manifest" "$cargo_lock" "$package_manifest" "$changelog"
 git commit --quiet --message "chore(release): $tag"
-# `--cleanup=whitespace` keeps the "###" headings of the notes, which the default mode strips.
-git tag --annotate --cleanup=whitespace "$tag" --message "$tag" --message "$notes"
+# The message of the tag is the notes alone, so that the release takes them as they are.
+# `--cleanup=whitespace` keeps the "###" headings, which the default mode strips.
+git tag --annotate --cleanup=whitespace "$tag" --message "$notes"
 
 echo "$tag is ready. Push it with: git push --follow-tags"
