@@ -80,8 +80,8 @@ const MAX_PER_GENRE_SET: usize = 3;
 /// series does not fill it.
 const MAX_PER_COLLECTION: usize = 2;
 
-/// How many rows a candidate query returns. The final score re-ranks them, so
-/// the query returns more rows than the page shows.
+/// How many rows a candidate query returns. The final score re-ranks them and
+/// the caps drop some of them, so the query returns more rows than the page shows.
 const CANDIDATE_LIMIT: i64 = 200;
 
 /// How many genres and how many languages the taste profile reports.
@@ -534,16 +534,17 @@ fn rank<T>(
             genres.retain(|genre_id| weights(genre_id) > 0.0);
             genres.sort_by(|a, b| weights(b).total_cmp(&weights(a)).then_with(|| a.cmp(b)));
             genres.truncate(MAX_REASON_GENRES);
+            let reasons = genres
+                .iter()
+                .filter_map(|genre_id| genre_names.get(genre_id).cloned())
+                .collect();
             (
-                genres.clone(),
+                genres,
                 Recommendation {
                     item: candidate.item,
                     local_id: None,
                     score: score.clamp(0.0, 1.0),
-                    reasons: genres
-                        .iter()
-                        .filter_map(|genre_id| genre_names.get(genre_id).cloned())
-                        .collect(),
+                    reasons,
                 },
             )
         })
