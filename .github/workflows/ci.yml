@@ -36,6 +36,8 @@ jobs:
   # Only the backend tests need a database, so the service runs on this job.
   test-backend:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     services:
       postgres:
         image: ghcr.io/jaysonsantos/bunderwar:postgres-17.10
@@ -61,6 +63,8 @@ jobs:
   # The frontend needs no database, so this job runs beside the other jobs.
   test-frontend:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v5
 
@@ -74,3 +78,20 @@ jobs:
 
       - name: Build the frontend
         run: nix develop --command pnpm build
+
+  # The branch ruleset requires the context `check`. This guard reports that
+  # name and fails when any of the jobs above did not succeed.
+  check:
+    name: check
+    if: always()
+    needs: [lint, test-backend, test-frontend]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Check the result of every job
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS"
+          echo "$RESULTS" | jq --exit-status 'all(.[].result; . == "success")' > /dev/null
