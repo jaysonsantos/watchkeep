@@ -36,6 +36,11 @@ jobs:
         with:
           # The whole history and every tag, because git-cliff reads the commits since the last tag.
           fetch-depth: 0
+          # GITHUB_TOKEN cannot push to the default branch. GitHub refuses a
+          # ruleset bypass actor of type Integration on a user-owned
+          # repository. This token acts as the repository admin, and the admin
+          # bypass actor lets the push through. Terraform owns the secret.
+          token: ${{ secrets.RELEASE_TOKEN }}
 
       - name: Refuse a manual run outside the default branch
         # `gh workflow run --ref` and the Actions page can name any branch. A
