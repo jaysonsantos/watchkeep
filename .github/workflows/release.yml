@@ -36,6 +36,12 @@ jobs:
         with:
           # The whole history and every tag, because git-cliff reads the commits since the last tag.
           fetch-depth: 0
+          # GITHUB_TOKEN cannot push to the default branch. GitHub refuses a
+          # ruleset bypass actor of type Integration on a user-owned
+          # repository. A deploy key works, because it belongs to the
+          # repository. The ruleset names DeployKey as a bypass actor, so this
+          # push goes through. Terraform owns the key and the secret.
+          ssh-key: ${{ secrets.RELEASE_SSH_KEY }}
 
       - name: Refuse a manual run outside the default branch
         # `gh workflow run --ref` and the Actions page can name any branch. A
