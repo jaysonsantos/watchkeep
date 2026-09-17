@@ -13,9 +13,9 @@ use uuid::Uuid;
 
 use crate::clock::SharedClock;
 use crate::model::{
-    EpisodeInput, EpisodeRow, ExternalIds, MediaKind, MediaRow, MovieRef, PlayRow, PlaySource,
-    PlayState, ProgressRow, RatingKind, ShowRef, TargetKind, WatchlistRow, millis, new_id,
-    non_empty, tmdb_number, to_millis,
+    EpisodeInput, EpisodeRow, ExternalIds, MediaKind, MediaRef, MediaRow, MovieRef, PlayRow,
+    PlaySource, PlayState, ProgressRow, RatingKind, ShowRef, TargetKind, WatchlistRow, millis,
+    new_id, non_empty, tmdb_number, to_millis,
 };
 
 /// The `event` column of a webhook log row when the payload had no event name.
