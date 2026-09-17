@@ -271,76 +271,66 @@ pub async fn enrich_episode(catalog: Option<&Catalog>, media: EpisodeRef) -> Res
     Ok(episode_with_catalog(media, show, episode.as_ref()))
 }
 
-/// Create or update the movie, show, and episode rows for a media reference.
-pub async fn resolve_target<C: DerefMut<Target = PgConnection>>(
-    library: &mut Library<C>,
-    catalog: Option<&Catalog>,
-    media: MediaRef,
-) -> Result<ResolvedTarget> {
-    match media {
-        MediaRef::Movie(movie) => {
-            let movie = enrich_movie(catalog, movie).await?;
-            library
-                .lock_media_identity(&MediaRef::Movie(movie.clone()))
-                .await?;
-            let movie = library.upsert_movie(&movie).await?;
-            Ok(ResolvedTarget {
-                kind: TargetKind::Movie,
-                id: movie.id,
-                title: movie_display_title(&movie),
-                duration: movie.duration(),
-                show_id: None,
-            })
+impl ResolvedTarget {
+    fn movie(movie: &MediaRow) -> Self {
+        Self {
+            kind: TargetKind::Movie,
+            id: movie.id,
+            title: movie_display_title(movie),
+            duration: movie.duration(),
+            show_id: None,
         }
-        MediaRef::Episode(episode) => {
-            let enriched = enrich_episode(catalog, episode).await?;
-            library
-                .lock_media_identity(&MediaRef::Episode(enriched.clone()))
-                .await?;
-            let show = library.upsert_show(&enriched.show).await?;
-            let episode = library.upsert_episode(show.id, &enriched.episode).await?;
-            Ok(ResolvedTarget {
-                kind: TargetKind::Episode,
-                id: episode.id,
-                title: episode_display_title(&show, &episode),
-                duration: episode.duration(),
-                show_id: Some(show.id),
-            })
+    }
+
+    fn episode(show: &MediaRow, episode: &EpisodeRow) -> Self {
+        Self {
+            kind: TargetKind::Episode,
+            id: episode.id,
+            title: episode_display_title(show, episode),
+            duration: episode.duration(),
+            show_id: Some(show.id),
         }
     }
 }
 
-/// The item this payload already names, without writing title or year.
-async fn find_existing_target<C: DerefMut<Target = PgConnection>>(
+/// Fill the reference from the catalog. An event runs this once, before it
+/// takes the identity and item locks, so a slow catalog holds no item.
+pub async fn enrich_media(catalog: Option<&Catalog>, media: MediaRef) -> Result<MediaRef> {
+    Ok(match media {
+        MediaRef::Movie(movie) => MediaRef::Movie(enrich_movie(catalog, movie).await?),
+        MediaRef::Episode(episode) => MediaRef::Episode(enrich_episode(catalog, episode).await?),
+    })
+}
+
+/// Create or update the movie, show, and episode rows for an enriched reference.
+async fn upsert_target<C: DerefMut<Target = PgConnection>>(
     library: &mut Library<C>,
-    catalog: Option<&Catalog>,
-    media: MediaRef,
-) -> Result<Option<ResolvedTarget>> {
+    media: &MediaRef,
+) -> Result<ResolvedTarget> {
     match media {
         MediaRef::Movie(movie) => {
-            let movie = enrich_movie(catalog, movie).await?;
-            library
-                .lock_media_identity(&MediaRef::Movie(movie.clone()))
-                .await?;
-            let Some(movie) = library
-                .find_media(MediaKind::Movie, &movie.title, movie.year, &movie.ids)
-                .await?
-            else {
-                return Ok(None);
-            };
-            Ok(Some(ResolvedTarget {
-                kind: TargetKind::Movie,
-                id: movie.id,
-                title: movie_display_title(&movie),
-                duration: movie.duration(),
-                show_id: None,
-            }))
+            let movie = library.upsert_movie(movie).await?;
+            Ok(ResolvedTarget::movie(&movie))
         }
-        MediaRef::Episode(episode) => {
-            let enriched = enrich_episode(catalog, episode).await?;
-            library
-                .lock_media_identity(&MediaRef::Episode(enriched.clone()))
-                .await?;
+        MediaRef::Episode(enriched) => {
+            let show = library.upsert_show(&enriched.show).await?;
+            let episode = library.upsert_episode(show.id, &enriched.episode).await?;
+            Ok(ResolvedTarget::episode(&show, &episode))
+        }
+    }
+}
+
+/// The item that an enriched reference already names. It writes nothing.
+async fn find_target<C: DerefMut<Target = PgConnection>>(
+    library: &mut Library<C>,
+    media: &MediaRef,
+) -> Result<Option<ResolvedTarget>> {
+    match media {
+        MediaRef::Movie(movie) => Ok(library
+            .find_media(MediaKind::Movie, &movie.title, movie.year, &movie.ids)
+            .await?
+            .map(|movie| ResolvedTarget::movie(&movie))),
+        MediaRef::Episode(enriched) => {
             let Some(show) = library
                 .find_media(
                     MediaKind::Show,
@@ -352,18 +342,28 @@ async fn find_existing_target<C: DerefMut<Target = PgConnection>>(
             else {
                 return Ok(None);
             };
-            let Some(episode) = library.find_episode_for(show.id, &enriched.episode).await? else {
-                return Ok(None);
-            };
-            Ok(Some(ResolvedTarget {
-                kind: TargetKind::Episode,
-                id: episode.id,
-                title: episode_display_title(&show, &episode),
-                duration: episode.duration(),
-                show_id: Some(show.id),
-            }))
+            Ok(library
+                .find_episode_for(show.id, &enriched.episode)
+                .await?
+                .map(|episode| ResolvedTarget::episode(&show, &episode)))
         }
     }
+}
+
+/// Hold the identity of the reference, and the item when it exists. Both
+/// sources take the locks in this order and write the media rows after them.
+/// A source that wrote the rows first would hold a row that the other source
+/// needs while it waits for the item, and the two would deadlock.
+async fn hold_target<C: DerefMut<Target = PgConnection>>(
+    library: &mut Library<C>,
+    media: &MediaRef,
+) -> Result<Option<ResolvedTarget>> {
+    library.lock_media_identity(media).await?;
+    let existing = find_target(library, media).await?;
+    if let Some(target) = &existing {
+        library.lock_target(target.kind, target.id).await?;
+    }
+    Ok(existing)
 }
 
 /// True when the list is empty, or when it holds one of the names of the event.
@@ -464,14 +464,17 @@ impl Scrobbler {
                 percent: None,
             });
         }
+        let media = enrich_media(self.catalog.as_ref(), event.media.clone()).await?;
         let mut tx = self.pool.begin().await?;
         let result = {
             let mut library = Library::new(&mut *tx, self.clock.clone());
-            let target =
-                resolve_target(&mut library, self.catalog.as_ref(), event.media.clone()).await?;
             // Same as the generic path: identity locks can differ by sender,
             // so the resolved item must serialize play and progress writes.
-            library.lock_target(target.kind, target.id).await?;
+            let existing = hold_target(&mut library, &media).await?;
+            let target = upsert_target(&mut library, &media).await?;
+            if existing.is_none() {
+                library.lock_target(target.kind, target.id).await?;
+            }
             match event.event {
                 PlexEventName::Rate => self.rate(&mut library, event, &target).await?,
                 PlexEventName::Scrobble => {
@@ -553,7 +556,7 @@ impl Scrobbler {
             let mut library = Library::new(&mut *tx, self.clock.clone());
             library.lock_scrobble_event(event.event_id).await?;
             // A retry must not upsert metadata from its older payload. Check
-            // the retained id before resolve_target writes the title or year.
+            // the retained id before `upsert_target` writes the title or year.
             if let Some((kind, id)) = library.scrobble_event_target(event.event_id).await? {
                 ScrobbleResult {
                     action: ScrobbleAction::DuplicateEvent,
@@ -563,22 +566,23 @@ impl Scrobbler {
                     position_ms: None,
                     percent: None,
                 }
-            } else if let Some(target) =
-                find_existing_target(&mut library, self.catalog.as_ref(), media.clone()).await?
-            {
-                library.lock_target(target.kind, target.id).await?;
-                if let Some(stale) = Self::stale_for_existing(&mut library, event, &target).await? {
+            } else {
+                let media = enrich_media(self.catalog.as_ref(), media).await?;
+                let existing = hold_target(&mut library, &media).await?;
+                let stale = match &existing {
+                    Some(target) => Self::stale_for_existing(&mut library, event, target).await?,
+                    None => None,
+                };
+                if let Some(stale) = stale {
                     stale
                 } else {
-                    let target = resolve_target(&mut library, self.catalog.as_ref(), media).await?;
+                    let target = upsert_target(&mut library, &media).await?;
+                    if existing.is_none() {
+                        library.lock_target(target.kind, target.id).await?;
+                    }
                     self.apply_new_scrobble(&mut library, event, &target)
                         .await?
                 }
-            } else {
-                let target = resolve_target(&mut library, self.catalog.as_ref(), media).await?;
-                library.lock_target(target.kind, target.id).await?;
-                self.apply_new_scrobble(&mut library, event, &target)
-                    .await?
             }
         };
         tx.commit().await?;
@@ -896,14 +900,7 @@ impl Scrobbler {
             .await?
             .is_some_and(|play| event.occurred_at < play.watched_at)
         {
-            return Ok(ScrobbleResult {
-                action: ScrobbleAction::StaleEvent,
-                target_kind: target.kind,
-                target_id: Some(target.id),
-                title: target.title.clone(),
-                position_ms: None,
-                percent: None,
-            });
+            return Ok(Self::stale_result_without_progress(target));
         }
         library.remove_plays(target.kind, target.id).await?;
         library

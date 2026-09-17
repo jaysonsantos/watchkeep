@@ -175,7 +175,7 @@ fn trimmed(text: Option<&str>) -> String {
 }
 
 impl ScrobbleMedia {
-    /// The media reference that `resolve_target` takes, with the runtime the player measured.
+    /// The media reference that the scrobbler takes, with the runtime the player measured.
     fn media_ref(&self, duration: Option<Duration>) -> Result<MediaRef, InvalidEvent> {
         let title = trimmed(self.title.as_deref());
         let ids = external_ids(self.ids.as_ref());

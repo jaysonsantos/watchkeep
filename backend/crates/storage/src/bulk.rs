@@ -317,7 +317,12 @@ pub async fn bulk_upsert_media(
         let base = updates.get(&current.id).unwrap_or(current);
         let ids = input.ids();
         let merged = MediaRow {
-            title: input.title().to_owned(),
+            // A source that sends ids alone has no title. It must not erase one.
+            title: if input.title().trim().is_empty() {
+                base.title.clone()
+            } else {
+                input.title().to_owned()
+            },
             year: input.year().or(base.year),
             plex_guid: claims
                 .claim(IdColumn::PlexGuid, ids.plex_guid.clone(), owner)
