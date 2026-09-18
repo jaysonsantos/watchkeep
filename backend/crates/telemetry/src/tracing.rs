@@ -40,9 +40,17 @@ pub struct OtelGuard {
     tracer_provider: SdkTracerProvider,
     meter_provider: SdkMeterProvider,
     flushed: AtomicBool,
+    database: Database,
 }
 
 impl OtelGuard {
+    /// The database of the statement spans. `configure_tracing` runs before the
+    /// process reads its command line, so the server has no name yet. Call
+    /// `describe` on this handle when the pool opens.
+    pub fn database(&self) -> Database {
+        self.database.clone()
+    }
+
     /// Sends what the providers hold. Call it before the process returns. A
     /// second flush waits for the export timeout again, so `Drop` skips its own
     /// flush after this call.
@@ -140,6 +148,7 @@ pub fn configure_tracing() -> Result<OtelGuard> {
     global::set_text_map_propagator(propagator());
 
     let tracer = tracer_provider.tracer(SERVICE_NAME);
+    let database = Database::postgresql();
     let otel_layer = tracing_opentelemetry::layer()
         .with_tracer(tracer.clone())
         .with_error_fields_to_exceptions(true)
@@ -159,7 +168,7 @@ pub fn configure_tracing() -> Result<OtelGuard> {
         .with(metrics_layer)
         // The statements of sqlx are events, not spans. This layer makes the
         // span, so a trace shows the database calls of a request.
-        .with(crate::sqlx::layer(tracer, Database::postgresql()))
+        .with(crate::sqlx::layer(tracer, database.clone()))
         .with(otel_layer.with_filter(log_filter()))
         .with(
             tracing_subscriber::fmt::layer()
@@ -173,6 +182,7 @@ pub fn configure_tracing() -> Result<OtelGuard> {
         tracer_provider,
         meter_provider,
         flushed: AtomicBool::new(false),
+        database,
     })
 }
 

@@ -9,10 +9,11 @@ use color_eyre::eyre::{Result, WrapErr, eyre};
 use tracing::Instrument;
 use watchkeep::app::{AppContext, SharedContext, build_router, has_web_ui};
 use watchkeep::config::{Cli, Command, Config, env};
+use watchkeep::telemetry::describe_database;
 use watchkeep::trakt::import::{ImportOptions, import_trakt_export};
 use watchkeep_storage::db::{create_pool, open_database};
 use watchkeep_telemetry::tracing::EXPORT_GRACE;
-use watchkeep_telemetry::{configure_tracing, report_error, root_span, spawn};
+use watchkeep_telemetry::{Database, configure_tracing, report_error, root_span, spawn};
 
 /// Pool size of the catalog database.
 const CATALOG_POOL_SIZE: u32 = 3;
@@ -42,7 +43,7 @@ async fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let code = run().await;
+    let code = run(guard.database()).await;
     guard.force_flush();
     drop(guard);
     // The batch exporter sends on its own thread. Give it time before the exit.
@@ -53,15 +54,17 @@ async fn main() -> ExitCode {
 /// Reads the command line and runs the command inside the root span. The report
 /// of a failure also happens inside the span, so that the trace of the command
 /// carries the exception and the error status.
-async fn run() -> ExitCode {
+async fn run(database: Database) -> ExitCode {
     let Cli { config, command } = Cli::parse();
     let command = command.unwrap_or(Command::Serve);
     let span = root_span(command.name());
     async move {
         let result = match command {
-            Command::Serve => serve(config).await,
-            Command::Sync => sync(config).await,
-            Command::TraktImport { zip, dry_run } => trakt_import(config, zip, dry_run).await,
+            Command::Serve => serve(config, database).await,
+            Command::Sync => sync(config, database).await,
+            Command::TraktImport { zip, dry_run } => {
+                trakt_import(config, database, zip, dry_run).await
+            }
             Command::Health => health(&config).await,
         };
         match result {
@@ -77,8 +80,8 @@ async fn run() -> ExitCode {
 }
 
 /// Runs one Plex library sync and prints the report as JSON.
-async fn sync(config: Config) -> Result<()> {
-    let ctx = open_context(config).await?;
+async fn sync(config: Config, database: Database) -> Result<()> {
+    let ctx = open_context(config, &database).await?;
     let report = ctx.sync().await.map_err(|error| eyre!("{error:#}"))?;
     println!("{}", serde_json::to_string(&report)?);
     ctx.close().await;
@@ -86,8 +89,13 @@ async fn sync(config: Config) -> Result<()> {
 }
 
 /// Imports a Trakt export and prints the report as JSON.
-async fn trakt_import(config: Config, zip: std::path::PathBuf, dry_run: bool) -> Result<()> {
-    let ctx = open_context(config).await?;
+async fn trakt_import(
+    config: Config,
+    database: Database,
+    zip: std::path::PathBuf,
+    dry_run: bool,
+) -> Result<()> {
+    let ctx = open_context(config, &database).await?;
     let options = ImportOptions {
         clock: ctx.clock.clone(),
         dry_run,
@@ -119,7 +127,8 @@ async fn health(config: &Config) -> Result<()> {
     Ok(())
 }
 
-async fn open_context(config: Config) -> Result<SharedContext> {
+async fn open_context(config: Config, database: &Database) -> Result<SharedContext> {
+    describe_database(database, &config.database_url);
     let pool = open_database(&config.database_url)
         .await
         .wrap_err("cannot open the Watchkeep database")?;
@@ -135,8 +144,8 @@ async fn open_context(config: Config) -> Result<SharedContext> {
     Ok(Arc::new(AppContext::new(pool, catalog_pool, config, None)))
 }
 
-async fn serve(config: Config) -> Result<()> {
-    let ctx = open_context(config).await?;
+async fn serve(config: Config, database: Database) -> Result<()> {
+    let ctx = open_context(config, &database).await?;
     if ctx.catalog.is_some() {
         tracing::info!("catalog enabled");
     } else {

@@ -11,10 +11,11 @@ use axum::middleware::Next;
 use axum::response::Response;
 use opentelemetry::metrics::{Counter, Histogram, UpDownCounter};
 use opentelemetry::{KeyValue, global};
+use sqlx::postgres::PgConnectOptions;
 use tracing::{Instrument, Span, field};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
-use watchkeep_telemetry::SERVICE_NAME;
 use watchkeep_telemetry::propagation::context_of;
+use watchkeep_telemetry::{Database, SERVICE_NAME, Server};
 
 /// The span of one HTTP request. `otel.name` carries the method and the route.
 const SPAN_NAME: &str = "watchkeep_http";
@@ -219,3 +220,78 @@ fn status_label(status: StatusCode) -> &'static str {
 pub fn milliseconds(elapsed: Duration) -> f64 {
     elapsed.as_secs_f64() * MILLISECONDS_PER_SECOND
 }
+
+// region: database
+
+/// Names the server of the statement spans. The subscriber starts before this
+/// process reads its command line, so the layer learns the server here.
+///
+/// The settings come from the driver, never from the URL as text: the URL
+/// carries the password, and a span must never hold it. A URL that the driver
+/// cannot read leaves the server without a name; the pool reports that failure
+/// itself.
+pub fn describe_database(database: &Database, url: &str) {
+    let Ok(options) = url.parse::<PgConnectOptions>() else {
+        return;
+    };
+    let mut server = Server::default();
+    if let Some(namespace) = options.get_database() {
+        server = server.with_namespace(namespace);
+    }
+    if let Some(default_port) = database.default_port() {
+        server = server.with_address(options.get_host(), options.get_port(), default_port);
+    }
+    database.describe(server);
+}
+
+#[cfg(test)]
+mod database_tests {
+    use super::*;
+
+    /// The port of the test server, which is not the default one.
+    const OTHER_PORT: u16 = 6432;
+
+    fn server_of(url: &str) -> Server {
+        let database = Database::postgresql();
+        describe_database(&database, url);
+        database.server().cloned().unwrap_or_default()
+    }
+
+    #[test]
+    fn the_url_names_the_database_and_the_host() {
+        let server = server_of("postgres://someone:secret@db.example:6432/watchkeep");
+        assert_eq!(server.namespace.as_deref(), Some("watchkeep"));
+        assert_eq!(server.address.as_deref(), Some("db.example"));
+        assert_eq!(server.port, Some(OTHER_PORT));
+    }
+
+    /// The conventions ask for the port only when it is not the default one.
+    #[test]
+    fn the_default_port_stays_out() {
+        let server = server_of("postgres://someone:secret@db.example/watchkeep");
+        assert_eq!(server.address.as_deref(), Some("db.example"));
+        assert_eq!(server.port, None);
+    }
+
+    /// The URL carries the password, and no attribute may hold it.
+    #[test]
+    fn no_attribute_holds_the_password() {
+        let server = server_of("postgres://someone:secret@db.example:6432/watchkeep");
+        for value in [&server.namespace, &server.address] {
+            assert!(
+                !value.as_deref().unwrap_or_default().contains("secret"),
+                "an attribute holds the password: {value:?}"
+            );
+        }
+    }
+
+    /// A URL that the driver cannot read leaves the server without a name. The
+    /// pool reports that failure itself.
+    #[test]
+    fn a_url_that_no_driver_reads_names_nothing() {
+        let server = server_of("this is no url");
+        assert_eq!(server, Server::default());
+    }
+}
+
+// endregion: database

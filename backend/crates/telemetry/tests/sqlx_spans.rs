@@ -7,11 +7,12 @@
 use opentelemetry::trace::{SpanKind, TracerProvider as _};
 use opentelemetry_sdk::trace::{InMemorySpanExporter, SdkTracerProvider, SpanData};
 use opentelemetry_semantic_conventions::attribute::{
-    DB_COLLECTION_NAME, DB_OPERATION_NAME, DB_QUERY_SUMMARY, DB_QUERY_TEXT, DB_SYSTEM_NAME,
+    DB_COLLECTION_NAME, DB_NAMESPACE, DB_OPERATION_NAME, DB_QUERY_SUMMARY, DB_QUERY_TEXT,
+    DB_SYSTEM_NAME, SERVER_ADDRESS, SERVER_PORT,
 };
 use sqlx::postgres::PgPoolOptions;
 use tracing_subscriber::layer::SubscriberExt;
-use watchkeep_telemetry::sqlx::{Database, layer};
+use watchkeep_telemetry::sqlx::{Database, Server, layer};
 
 /// The server of the test. The test does nothing without it.
 const DATABASE_URL: &str = "WATCHKEEP_TEST_DATABASE_URL";
@@ -24,6 +25,11 @@ const CALLER: &str = "caller";
 
 /// The database name of the server of the test.
 const NAMESPACE: &str = "postgres";
+
+/// The host of the server of the test, and a port that is not the default one.
+const ADDRESS: &str = "db.example";
+const PORT: u16 = 6432;
+const DEFAULT_PORT: u16 = 5432;
 
 #[tokio::test]
 async fn a_real_statement_makes_a_span_under_the_caller() {
@@ -49,6 +55,16 @@ async fn a_real_statement_makes_a_span_under_the_caller() {
         attribute(statement, DB_QUERY_SUMMARY).as_deref(),
         Some("SELECT pg_catalog.pg_class")
     );
+    // The process names the server after the subscriber starts.
+    assert_eq!(
+        attribute(statement, DB_NAMESPACE).as_deref(),
+        Some(NAMESPACE)
+    );
+    assert_eq!(
+        attribute(statement, SERVER_ADDRESS).as_deref(),
+        Some(ADDRESS)
+    );
+    assert_eq!(attribute(statement, SERVER_PORT).as_deref(), Some("6432"));
 
     let caller = span_named(&spans, CALLER);
     assert_eq!(statement.parent_span_id, caller.span_context.span_id());
@@ -125,7 +141,13 @@ async fn spans_of(statement: &'static str) -> Option<Vec<SpanData>> {
         .with(tracing_opentelemetry::layer().with_tracer(tracer.clone()))
         .with(layer(
             tracer,
-            Database::postgresql().with_namespace(NAMESPACE),
+            Database::postgresql().with_server(
+                Server::default().with_namespace(NAMESPACE).with_address(
+                    ADDRESS,
+                    PORT,
+                    DEFAULT_PORT,
+                ),
+            ),
         ));
 
     // The subscriber of this test alone, so that the spans of other tests stay out.
