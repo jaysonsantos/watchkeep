@@ -335,18 +335,26 @@ struct Query<'a> {
 
 /// The keyword that stands before the table, for each operation that names one.
 /// A statement of another operation gets its operation alone.
-const COLLECTION_KEYWORDS: [(&str, &str); 5] = [
+const COLLECTION_KEYWORDS: [(&str, &str); 4] = [
     ("SELECT", "FROM"),
     ("DELETE", "FROM"),
     ("INSERT", "INTO"),
     ("UPDATE", "UPDATE"),
-    ("WITH", "FROM"),
 ];
+
+/// The word that opens a statement of common table expressions.
+const WITH: &str = "WITH";
+
+/// The operations that can follow the table expressions of a `WITH`. The
+/// statement does the work of one of these, and `WITH` names none of them.
+const OUTER_OPERATIONS: [&str; 5] = ["SELECT", "INSERT", "UPDATE", "DELETE", "MERGE"];
 
 impl<'a> Query<'a> {
     fn of(text: &'a str) -> Self {
-        let operation = text.split_whitespace().next();
-        let collection = operation.and_then(|operation| collection_of(text, operation));
+        let words = words_of(text);
+        let start = operation_at(&words);
+        let operation = words.get(start).map(|word| word.text);
+        let collection = operation.and_then(|operation| collection_of(&words[start..], operation));
         Self {
             operation,
             collection,
@@ -379,19 +387,95 @@ impl<'a> Query<'a> {
     }
 }
 
+/// One word of a statement, with the number of parentheses that hold it.
+struct Word<'a> {
+    text: &'a str,
+    depth: usize,
+}
+
+/// The word that carries the operation.
+///
+/// It is the first word of a plain statement. A statement that opens with
+/// `WITH` does the work of the operation that follows its table expressions,
+/// so the first word of such a statement names nothing. The table expressions
+/// stand inside parentheses, and the operation stands outside every one of
+/// them.
+fn operation_at(words: &[Word<'_>]) -> usize {
+    let Some(first) = words.first() else {
+        return 0;
+    };
+    if !first.text.eq_ignore_ascii_case(WITH) {
+        return 0;
+    }
+    words
+        .iter()
+        .position(|word| {
+            word.depth == 0
+                && OUTER_OPERATIONS
+                    .iter()
+                    .any(|operation| operation.eq_ignore_ascii_case(word.text))
+        })
+        .unwrap_or(0)
+}
+
 /// The table of a statement: the word after the keyword of the operation.
-fn collection_of(text: &str, operation: &str) -> Option<String> {
+///
+/// Only a word outside every parenthesis counts. A table expression and a
+/// subquery each carry their own `FROM`, and neither names the table of the
+/// statement.
+fn collection_of(words: &[Word<'_>], operation: &str) -> Option<String> {
     let (_, keyword) = COLLECTION_KEYWORDS
         .iter()
         .find(|(name, _)| name.eq_ignore_ascii_case(operation))?;
-    let mut words = text.split_whitespace();
+    let mut outer = words.iter().filter(|word| word.depth == 0);
     // `UPDATE` is its own keyword, so the table is the word after the first one.
-    while let Some(word) = words.next() {
-        if word.eq_ignore_ascii_case(keyword) {
-            return words.next().map(table_name).filter(|name| !name.is_empty());
+    while let Some(word) = outer.next() {
+        if word.text.eq_ignore_ascii_case(keyword) {
+            return outer
+                .next()
+                .map(|word| table_name(word.text))
+                .filter(|name| !name.is_empty());
         }
     }
     None
+}
+
+/// The words of a statement, each with the depth of parentheses that holds it.
+/// A parenthesis, a comma, and a semicolon end a word and never belong to one.
+fn words_of(text: &str) -> Vec<Word<'_>> {
+    let mut words = Vec::new();
+    let mut depth = 0usize;
+    let mut word: Option<(usize, usize)> = None;
+
+    for (index, character) in text.char_indices() {
+        let ends_the_word = character.is_whitespace()
+            || character == '('
+            || character == ')'
+            || character == ','
+            || character == ';';
+        if !ends_the_word {
+            word.get_or_insert((index, depth));
+            continue;
+        }
+        if let Some((from, at)) = word.take() {
+            words.push(Word {
+                text: &text[from..index],
+                depth: at,
+            });
+        }
+        match character {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    if let Some((from, at)) = word {
+        words.push(Word {
+            text: &text[from..],
+            depth: at,
+        });
+    }
+    words
 }
 
 /// The name alone: no quote, no parenthesis, no comma, no semicolon. A name
@@ -439,10 +523,50 @@ mod tests {
             ("SELECT count(*) FROM items;", "SELECT items"),
             ("BEGIN", "BEGIN"),
             ("", UNNAMED_STATEMENT),
+            // A subquery carries its own `FROM`, and it names no table of the
+            // statement.
+            (
+                "SELECT (SELECT max(id) FROM plays) FROM items",
+                "SELECT items",
+            ),
+            // A statement of table expressions does the work of the operation
+            // that follows them, never of `WITH`.
+            (
+                "WITH days AS (SELECT day FROM play_details) SELECT count(*) FROM days",
+                "SELECT days",
+            ),
+            (
+                "WITH a AS (SELECT 1), b AS (SELECT 2 FROM a) INSERT INTO plays SELECT * FROM b",
+                "INSERT plays",
+            ),
+            // A `WITH` that names no operation of its own keeps its first word.
+            ("WITH days AS (SELECT day FROM play_details)", "WITH"),
         ];
         for (statement, expected) in cases {
             assert_eq!(Query::of(statement).summary(), expected, "{statement}");
         }
+    }
+
+    /// The streak query of `storage::statistics`. Its first `FROM` belongs to a
+    /// table expression, four parentheses deep in the `FILTER` of the outer
+    /// `SELECT`.
+    #[test]
+    fn the_streak_query_names_its_outer_table() {
+        let statement = r#"WITH days AS (
+             SELECT DISTINCT (watched_at AT TIME ZONE $1)::date AS day FROM play_details
+           ), islands AS (
+             SELECT day, day - (ROW_NUMBER() OVER (ORDER BY day))::int AS island FROM days
+           ), runs AS (
+             SELECT COUNT(*) AS length, MAX(day) AS last_day FROM islands GROUP BY island
+           )
+           SELECT
+             COALESCE(MAX(length), 0) AS "longest!",
+             COALESCE(MAX(length) FILTER (WHERE last_day >= ($2 AT TIME ZONE $1)::date - $3::int), 0) AS "current!"
+           FROM runs"#;
+        let query = Query::of(statement);
+        assert_eq!(query.summary(), "SELECT runs");
+        assert_eq!(query.operation, Some("SELECT"));
+        assert_eq!(query.collection.as_deref(), Some("runs"));
     }
 
     #[test]
