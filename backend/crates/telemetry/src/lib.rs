@@ -8,6 +8,7 @@
 pub mod constants;
 pub mod propagation;
 pub mod report_error;
+pub mod sqlx;
 pub mod task;
 pub mod tracing;
 

@@ -20,8 +20,16 @@ eyre.workspace = true
 http.workspace = true
 opentelemetry.workspace = true
 opentelemetry-otlp.workspace = true
+opentelemetry-semantic-conventions.workspace = true
 opentelemetry_sdk.workspace = true
 tracing.workspace = true
 tracing-error.workspace = true
 tracing-opentelemetry.workspace = true
 tracing-subscriber.workspace = true
+
+[dev-dependencies]
+# `testing` brings `InMemorySpanExporter`, which holds the spans of a test.
+opentelemetry_sdk = { workspace = true, features = ["testing"] }
+# The end-to-end test runs a real statement on a real server.
+sqlx.workspace = true
+tokio.workspace = true
