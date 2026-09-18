@@ -128,7 +128,7 @@ async fn health(config: &Config) -> Result<()> {
 }
 
 async fn open_context(config: Config, database: &Database) -> Result<SharedContext> {
-    describe_database(database, &config.database_url);
+    describe_database(database, &config);
     let pool = open_database(&config.database_url)
         .await
         .wrap_err("cannot open the Watchkeep database")?;

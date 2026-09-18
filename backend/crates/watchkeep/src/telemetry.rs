@@ -12,6 +12,8 @@ use axum::response::Response;
 use opentelemetry::metrics::{Counter, Histogram, UpDownCounter};
 use opentelemetry::{KeyValue, global};
 use sqlx::postgres::PgConnectOptions;
+
+use crate::config::Config;
 use tracing::{Instrument, Span, field};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use watchkeep_telemetry::propagation::context_of;
@@ -226,40 +228,87 @@ pub fn milliseconds(elapsed: Duration) -> f64 {
 /// Names the server of the statement spans. The subscriber starts before this
 /// process reads its command line, so the layer learns the server here.
 ///
+/// One layer serves every pool of the process, and the statement event names no
+/// pool, so an attribute must hold for all of them. The catalog can live on
+/// another server or in another database, so each attribute goes in only when
+/// every pool agrees on it. A wrong server is worse than none.
+///
 /// The settings come from the driver, never from the URL as text: the URL
 /// carries the password, and a span must never hold it. A URL that the driver
 /// cannot read leaves the server without a name; the pool reports that failure
 /// itself.
-pub fn describe_database(database: &Database, url: &str) {
-    let Ok(options) = url.parse::<PgConnectOptions>() else {
+pub fn describe_database(database: &Database, config: &Config) {
+    let Some(pools) = connection_options(config) else {
         return;
     };
+    let Some(first) = pools.first() else {
+        return;
+    };
+
     let mut server = Server::default();
-    if let Some(namespace) = options.get_database() {
-        server = server.with_namespace(namespace);
+    if pools
+        .iter()
+        .all(|options| namespace_of(options) == namespace_of(first))
+    {
+        server = server.with_namespace(namespace_of(first));
     }
-    if let Some(default_port) = database.default_port() {
-        server = server.with_address(options.get_host(), options.get_port(), default_port);
+    let same_server = pools.iter().all(|options| {
+        options.get_host() == first.get_host() && options.get_port() == first.get_port()
+    });
+    if same_server && let Some(default_port) = database.default_port() {
+        server = server.with_address(first.get_host(), first.get_port(), default_port);
     }
     database.describe(server);
+}
+
+/// The settings of every pool that this process opens. `None` when a URL that
+/// the process uses is one that the driver cannot read.
+fn connection_options(config: &Config) -> Option<Vec<PgConnectOptions>> {
+    let mut urls = vec![config.database_url.as_str()];
+    if !config.catalog_database_url.is_empty() {
+        urls.push(config.catalog_database_url.as_str());
+    }
+    urls.into_iter()
+        .map(|url| url.parse::<PgConnectOptions>().ok())
+        .collect()
+}
+
+/// The database that a connection lands in. PostgreSQL takes the name of the
+/// user when the settings name no database, and sqlx sends no name in that
+/// case, so the name of the user is the answer.
+fn namespace_of(options: &PgConnectOptions) -> &str {
+    options
+        .get_database()
+        .unwrap_or_else(|| options.get_username())
 }
 
 #[cfg(test)]
 mod database_tests {
     use super::*;
+    use crate::config::Config;
 
-    /// The port of the test server, which is not the default one.
+    /// A port that is not the default one of PostgreSQL.
     const OTHER_PORT: u16 = 6432;
 
-    fn server_of(url: &str) -> Server {
+    fn server_of(database_url: &str, catalog_database_url: &str) -> Server {
+        let config = Config {
+            database_url: database_url.to_owned(),
+            catalog_database_url: catalog_database_url.to_owned(),
+            ..Config::default()
+        };
         let database = Database::postgresql();
-        describe_database(&database, url);
+        describe_database(&database, &config);
         database.server().cloned().unwrap_or_default()
+    }
+
+    /// One pool alone: every attribute holds.
+    fn server_of_one(url: &str) -> Server {
+        server_of(url, "")
     }
 
     #[test]
     fn the_url_names_the_database_and_the_host() {
-        let server = server_of("postgres://someone:secret@db.example:6432/watchkeep");
+        let server = server_of_one("postgres://someone:secret@db.example:6432/watchkeep");
         assert_eq!(server.namespace.as_deref(), Some("watchkeep"));
         assert_eq!(server.address.as_deref(), Some("db.example"));
         assert_eq!(server.port, Some(OTHER_PORT));
@@ -268,15 +317,22 @@ mod database_tests {
     /// The conventions ask for the port only when it is not the default one.
     #[test]
     fn the_default_port_stays_out() {
-        let server = server_of("postgres://someone:secret@db.example/watchkeep");
+        let server = server_of_one("postgres://someone:secret@db.example/watchkeep");
         assert_eq!(server.address.as_deref(), Some("db.example"));
         assert_eq!(server.port, None);
+    }
+
+    /// PostgreSQL takes the name of the user when the URL names no database.
+    #[test]
+    fn a_url_without_a_database_lands_in_the_database_of_the_user() {
+        let server = server_of_one("postgres://watchkeep:secret@db.example");
+        assert_eq!(server.namespace.as_deref(), Some("watchkeep"));
     }
 
     /// The URL carries the password, and no attribute may hold it.
     #[test]
     fn no_attribute_holds_the_password() {
-        let server = server_of("postgres://someone:secret@db.example:6432/watchkeep");
+        let server = server_of_one("postgres://someone:secret@db.example:6432/watchkeep");
         for value in [&server.namespace, &server.address] {
             assert!(
                 !value.as_deref().unwrap_or_default().contains("secret"),
@@ -289,8 +345,47 @@ mod database_tests {
     /// pool reports that failure itself.
     #[test]
     fn a_url_that_no_driver_reads_names_nothing() {
-        let server = server_of("this is no url");
-        assert_eq!(server, Server::default());
+        assert_eq!(server_of_one("this is no url"), Server::default());
+        assert_eq!(
+            server_of("postgres://someone@db.example/watchkeep", "this is no url"),
+            Server::default()
+        );
+    }
+
+    /// The catalog of the same server but another database: the host holds for
+    /// both pools, the name of the database does not.
+    #[test]
+    fn a_catalog_of_another_database_drops_the_namespace() {
+        let server = server_of(
+            "postgres://someone:secret@db.example:6432/watchkeep",
+            "postgres://someone:secret@db.example:6432/catalog",
+        );
+        assert_eq!(server.namespace, None);
+        assert_eq!(server.address.as_deref(), Some("db.example"));
+        assert_eq!(server.port, Some(OTHER_PORT));
+    }
+
+    /// The catalog of another server: no attribute of a server holds.
+    #[test]
+    fn a_catalog_of_another_server_drops_the_address() {
+        let server = server_of(
+            "postgres://someone:secret@db.example:6432/watchkeep",
+            "postgres://someone:secret@catalog.example:6432/watchkeep",
+        );
+        assert_eq!(server.address, None);
+        assert_eq!(server.port, None);
+        // Both pools land in a database of the same name.
+        assert_eq!(server.namespace.as_deref(), Some("watchkeep"));
+    }
+
+    /// The catalog of the same database: every attribute holds.
+    #[test]
+    fn a_catalog_of_the_same_database_keeps_everything() {
+        let url = "postgres://someone:secret@db.example:6432/watchkeep";
+        let server = server_of(url, url);
+        assert_eq!(server.namespace.as_deref(), Some("watchkeep"));
+        assert_eq!(server.address.as_deref(), Some("db.example"));
+        assert_eq!(server.port, Some(OTHER_PORT));
     }
 }
 
