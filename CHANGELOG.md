@@ -2,6 +2,16 @@
 
 Every notable change of Watchkeep. The entries come from the commit messages.
 
+## [0.5.0](https://github.com/jaysonsantos/watchkeep/releases/tag/v0.5.0) - 2026-09-18
+
+### Continuous integration
+
+- End the claude workflow files with one newline ([680203f](https://github.com/jaysonsantos/watchkeep/commit/680203fe75d06ee2171fb5aa2c0233520a853b06))
+
+### Features
+
+- **telemetry:** Make a span from every sqlx statement (#30) ([6ec3bbe](https://github.com/jaysonsantos/watchkeep/commit/6ec3bbe263eedcd3d9e56c1ac111c62159608db1))
+
 ## [0.4.0](https://github.com/jaysonsantos/watchkeep/releases/tag/v0.4.0) - 2026-09-18
 
 ### Continuous integration
