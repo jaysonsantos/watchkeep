@@ -345,6 +345,12 @@ const COLLECTION_KEYWORDS: [(&str, &str); 4] = [
 /// The word that opens a statement of common table expressions.
 const WITH: &str = "WITH";
 
+/// The character that opens a text literal.
+const QUOTE: char = '\'';
+
+/// Two of these open a line comment.
+const LINE_COMMENT: char = '-';
+
 /// The operations that can follow the table expressions of a `WITH`. The
 /// statement does the work of one of these, and `WITH` names none of them.
 const OUTER_OPERATIONS: [&str; 5] = ["SELECT", "INSERT", "UPDATE", "DELETE", "MERGE"];
@@ -442,40 +448,103 @@ fn collection_of(words: &[Word<'_>], operation: &str) -> Option<String> {
 
 /// The words of a statement, each with the depth of parentheses that holds it.
 /// A parenthesis, a comma, and a semicolon end a word and never belong to one.
+///
+/// A comment and a text literal give no word. A migration opens with a line
+/// comment, and the span of such a statement would otherwise carry the name
+/// `--`. A literal can hold a parenthesis or the two dashes of a comment, and
+/// it names no table, so the whole literal goes.
 fn words_of(text: &str) -> Vec<Word<'_>> {
+    let characters: Vec<(usize, char)> = text.char_indices().collect();
     let mut words = Vec::new();
     let mut depth = 0usize;
     let mut word: Option<(usize, usize)> = None;
+    let mut index = 0usize;
 
-    for (index, character) in text.char_indices() {
+    while index < characters.len() {
+        let (position, character) = characters[index];
+        let next = characters.get(index + 1).map(|(_, character)| *character);
+
+        // A line comment runs to the end of its line.
+        if character == LINE_COMMENT && next == Some(LINE_COMMENT) {
+            end_word(text, &mut word, position, &mut words);
+            while index < characters.len() && characters[index].1 != '\n' {
+                index += 1;
+            }
+            continue;
+        }
+        // A block comment runs to its close, and PostgreSQL lets one nest.
+        if character == '/' && next == Some('*') {
+            end_word(text, &mut word, position, &mut words);
+            index += 2;
+            let mut open = 1usize;
+            while index < characters.len() && open > 0 {
+                let this = characters[index].1;
+                let after = characters.get(index + 1).map(|(_, character)| *character);
+                if this == '/' && after == Some('*') {
+                    open += 1;
+                    index += 2;
+                } else if this == '*' && after == Some('/') {
+                    open -= 1;
+                    index += 2;
+                } else {
+                    index += 1;
+                }
+            }
+            continue;
+        }
+        // A text literal ends at the next quote. Two quotes in a row are one
+        // quote of the text, not the end.
+        if character == QUOTE {
+            end_word(text, &mut word, position, &mut words);
+            index += 1;
+            while index < characters.len() {
+                if characters[index].1 == QUOTE {
+                    if characters.get(index + 1).map(|(_, c)| *c) == Some(QUOTE) {
+                        index += 2;
+                        continue;
+                    }
+                    index += 1;
+                    break;
+                }
+                index += 1;
+            }
+            continue;
+        }
+
         let ends_the_word = character.is_whitespace()
             || character == '('
             || character == ')'
             || character == ','
             || character == ';';
-        if !ends_the_word {
-            word.get_or_insert((index, depth));
-            continue;
+        if ends_the_word {
+            end_word(text, &mut word, position, &mut words);
+            match character {
+                '(' => depth += 1,
+                ')' => depth = depth.saturating_sub(1),
+                _ => {}
+            }
+        } else if word.is_none() {
+            word = Some((position, depth));
         }
-        if let Some((from, at)) = word.take() {
-            words.push(Word {
-                text: &text[from..index],
-                depth: at,
-            });
-        }
-        match character {
-            '(' => depth += 1,
-            ')' => depth = depth.saturating_sub(1),
-            _ => {}
-        }
+        index += 1;
     }
-    if let Some((from, at)) = word {
+    end_word(text, &mut word, text.len(), &mut words);
+    words
+}
+
+/// Closes the word that is open, if there is one.
+fn end_word<'a>(
+    text: &'a str,
+    word: &mut Option<(usize, usize)>,
+    at: usize,
+    words: &mut Vec<Word<'a>>,
+) {
+    if let Some((from, depth)) = word.take() {
         words.push(Word {
-            text: &text[from..],
-            depth: at,
+            text: &text[from..at],
+            depth,
         });
     }
-    words
 }
 
 /// The name alone: no quote, no parenthesis, no comma, no semicolon. A name
@@ -567,6 +636,81 @@ mod tests {
         assert_eq!(query.summary(), "SELECT runs");
         assert_eq!(query.operation, Some("SELECT"));
         assert_eq!(query.collection.as_deref(), Some("runs"));
+    }
+
+    /// The two other statements of table expressions of the repository. The
+    /// `months` query of `storage::statistics` holds a `FROM` in its second
+    /// table expression, and the movie recommendation of `catalog` opens with
+    /// `FROM unnest(...)`, which names no table at all.
+    #[test]
+    fn the_other_queries_of_the_repository_name_their_outer_table() {
+        let months = r#"WITH bounds AS (
+             SELECT date_trunc('month', $2 AT TIME ZONE $1) AS last_month
+           ), series AS (
+             SELECT generate_series(last_month - make_interval(months => $3), last_month, interval '1 month') AS start
+             FROM bounds
+           )
+           SELECT to_char(s.start, 'YYYY-MM') AS "period!",
+                  COUNT(d.id) AS "plays!",
+                  COALESCE(SUM(d.runtime_ms), 0)::bigint AS "runtime_ms!"
+           FROM series s
+           LEFT JOIN play_details d ON date_trunc('month', d.watched_at AT TIME ZONE $1) = s.start
+           GROUP BY s.start
+           ORDER BY s.start"#;
+        let query = Query::of(months);
+        assert_eq!(query.operation, Some("SELECT"));
+        assert_eq!(query.collection.as_deref(), Some("series"));
+
+        let recommendation = r#"WITH affinity AS (
+                 SELECT * FROM unnest($1::bigint[], $2::float8[]) AS t (genre_id, weight)
+               ), pool AS (
+                 SELECT m.id FROM tmdb_movie m
+                 WHERE m.vote_count >= $3 AND NOT (m.id = ANY($4))
+                 LIMIT $6
+               ), scored AS (
+                 SELECT p.id, SUM(COALESCE(a.weight, 0.0)) / sqrt(COUNT(*)::float8) AS affinity
+                 FROM pool p
+                 JOIN tmdb_movie_genre g ON g.movie_id = p.id
+                 GROUP BY p.id
+               )
+               SELECT m.id, m.title_en, COALESCE(m.weighted_rating, 0.0) AS "quality!"
+               FROM scored s JOIN tmdb_movie m ON m.id = s.id
+               ORDER BY s.affinity DESC, m.id DESC
+               LIMIT $7"#;
+        let query = Query::of(recommendation);
+        assert_eq!(query.operation, Some("SELECT"));
+        assert_eq!(query.collection.as_deref(), Some("scored"));
+    }
+
+    /// A comment and a text literal give no word. The migrations of
+    /// `storage` open with a line comment, and a literal can hold a
+    /// parenthesis or the two dashes of a comment.
+    #[test]
+    fn a_comment_and_a_literal_name_nothing() {
+        let cases = [
+            // The head of `0001_initial.sql`.
+            (
+                "-- The Watchkeep schema. Ids are UUID v7 from the server.\n\nCREATE TABLE items (id uuid)",
+                "CREATE",
+            ),
+            ("/* a block */ SELECT id FROM items", "SELECT items"),
+            (
+                "/* a /* nested */ block */ DELETE FROM plays",
+                "DELETE plays",
+            ),
+            ("SELECT id -- FROM comments\n FROM items", "SELECT items"),
+            // The literal holds the dashes of a comment and a parenthesis.
+            ("SELECT '-- ( ' FROM items", "SELECT items"),
+            // Two quotes in a row are one quote of the text, not its end.
+            ("SELECT 'it''s ( here' FROM items", "SELECT items"),
+            // A single dash is the operator of a subtraction, not a comment.
+            ("SELECT day - 1 FROM days", "SELECT days"),
+            // A comment alone gives no operation at all.
+            ("-- nothing here", UNNAMED_STATEMENT),
+        ];
+        for (statement, expected) in cases {
+            assert_eq!(Query::of(statement).summary(), expected, "{statement}");
+        }
     }
 
     #[test]
