@@ -43,8 +43,9 @@ pub fn init_goodies() -> Flusher {
         };
         global::set_meter_provider(meter_provider.clone());
         global::set_text_map_propagator(propagator());
+        let tracer = tracer_provider.tracer(TESTING_TRACER);
         let otel_layer = tracing_opentelemetry::layer()
-            .with_tracer(tracer_provider.tracer(TESTING_TRACER))
+            .with_tracer(tracer.clone())
             .with_error_fields_to_exceptions(true)
             .with_error_events_to_status(true)
             .with_error_events_to_exceptions(true)
@@ -54,6 +55,10 @@ pub fn init_goodies() -> Flusher {
                 meter_provider.clone(),
             ))
             .with(otel_layer)
+            .with(crate::sqlx::layer(
+                tracer,
+                crate::sqlx::Database::postgresql(),
+            ))
             .with(tracing_subscriber::fmt::layer().with_test_writer())
             .with(ErrorLayer::default())
             .try_init();
