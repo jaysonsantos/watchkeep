@@ -2,7 +2,41 @@
 
 Every notable change of Watchkeep. The entries come from the commit messages.
 
-## Unreleased
+## [0.5.0](https://github.com/jaysonsantos/watchkeep/releases/tag/v0.5.0) - 2026-09-18
+
+### Continuous integration
+
+- End the claude workflow files with one newline ([680203f](https://github.com/jaysonsantos/watchkeep/commit/680203fe75d06ee2171fb5aa2c0233520a853b06))
+
+### Features
+
+- **telemetry:** Make a span from every sqlx statement (#30) ([6ec3bbe](https://github.com/jaysonsantos/watchkeep/commit/6ec3bbe263eedcd3d9e56c1ac111c62159608db1))
+
+## [0.4.0](https://github.com/jaysonsantos/watchkeep/releases/tag/v0.4.0) - 2026-09-18
+
+### Continuous integration
+
+- Split the release into a tag workflow and a tag answer (#28) ([356eb8d](https://github.com/jaysonsantos/watchkeep/commit/356eb8ddd3bb1fbaa0c1a8adbb7bf99908c19001))
+
+### Features
+
+- **webhook:** Add a generic scrobble endpoint (#6) ([347398f](https://github.com/jaysonsantos/watchkeep/commit/347398f6b83523118489afa31402f7d3bbab95f7))
+
+## [0.3.0](https://github.com/jaysonsantos/watchkeep/releases/tag/v0.3.0) - 2026-09-17
+
+### Build
+
+- **release:** Bump the version and write the changelog with git-cliff (#15) ([71f34f9](https://github.com/jaysonsantos/watchkeep/commit/71f34f92a496adb8aa4e5bde508eb1533ee06e63))
+
+### Continuous integration
+
+- Run the frontend tests and build in their own job (#21) ([9009e77](https://github.com/jaysonsantos/watchkeep/commit/9009e7784ddd4a5728c4e7688f17c4c5b6346c15))
+- Run the backend tests in their own job (#20) ([1e3834f](https://github.com/jaysonsantos/watchkeep/commit/1e3834f1fbbed367a0df32c505274e6a8507a9d8))
+- Run the linters in their own job (#19) ([dc20fb5](https://github.com/jaysonsantos/watchkeep/commit/dc20fb54acaddfea14a1482041795ab3626ed66f))
+- **release:** Start a release from a manual workflow run (#22) ([7b342bf](https://github.com/jaysonsantos/watchkeep/commit/7b342bfed088d1536aa39aecab2b6a577153e95e))
+- Add a check guard job for the split pipeline (#25) ([5caef60](https://github.com/jaysonsantos/watchkeep/commit/5caef601af1c7cf8ffe854cc9d4a1f596e42431b))
+- Push the release commit with a personal access token (#26) ([7f916c9](https://github.com/jaysonsantos/watchkeep/commit/7f916c95e768aa2af0f8ae407cee49b6c6cc75f0))
+- Push the release with the deploy key (#27) ([1dae854](https://github.com/jaysonsantos/watchkeep/commit/1dae8549a5ea28a54546ac2aca3fc716f6c92e23))
 
 ### Features
 

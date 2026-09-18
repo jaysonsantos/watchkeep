@@ -25,6 +25,7 @@ use tracing_subscriber::{EnvFilter, Layer};
 use crate::constants::{SERVICE_NAME, SERVICE_VERSION, SERVICE_VERSION_KEY, defaults, env};
 use crate::propagation::propagator;
 use crate::report_error::init_error_reporting;
+use crate::sqlx::Database;
 
 /// The exporters give up after this long, so that a collector that is down
 /// never blocks the service.
@@ -138,8 +139,9 @@ pub fn configure_tracing() -> Result<OtelGuard> {
     global::set_meter_provider(meter_provider.clone());
     global::set_text_map_propagator(propagator());
 
+    let tracer = tracer_provider.tracer(SERVICE_NAME);
     let otel_layer = tracing_opentelemetry::layer()
-        .with_tracer(tracer_provider.tracer(SERVICE_NAME))
+        .with_tracer(tracer.clone())
         .with_error_fields_to_exceptions(true)
         .with_error_events_to_status(true)
         .with_error_events_to_exceptions(true)
@@ -155,6 +157,9 @@ pub fn configure_tracing() -> Result<OtelGuard> {
     tracing_subscriber::registry()
         .with(console_layer())
         .with(metrics_layer)
+        // The statements of sqlx are events, not spans. This layer makes the
+        // span, so a trace shows the database calls of a request.
+        .with(crate::sqlx::layer(tracer, Database::postgresql()))
         .with(otel_layer.with_filter(log_filter()))
         .with(
             tracing_subscriber::fmt::layer()

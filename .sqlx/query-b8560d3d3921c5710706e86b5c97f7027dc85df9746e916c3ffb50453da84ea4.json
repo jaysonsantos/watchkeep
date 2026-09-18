@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, show_id, season, number, title, plex_guid, imdb_id, tmdb_id, tvdb_id, duration_ms, aired_at, created_at, updated_at\n                     FROM episodes WHERE plex_guid = $1",
+  "query": "SELECT id, show_id, season, number, title, plex_guid, imdb_id, tmdb_id, tvdb_id, duration_ms, aired_at, created_at, updated_at\n                 FROM episodes WHERE plex_guid = $1",
   "describe": {
     "columns": [
       {
@@ -168,5 +168,5 @@
       false
     ]
   },
-  "hash": "11dbdba01540424e9d6b603e1623baa09c5e2e9b6b577bb71fca1d43974f8a97"
+  "hash": "b8560d3d3921c5710706e86b5c97f7027dc85df9746e916c3ffb50453da84ea4"
 }

@@ -1,21 +1,18 @@
-# A release starts in one of two ways: a manual run of this workflow, or a version
-# tag (v1.2.3) pushed from a local `scripts/release.sh`. A manual run makes the
-# release commit and the tag first, with the version from the Conventional Commits.
-# The workflow then builds the image for linux/amd64 and linux/arm64 and pushes it
-# to GHCR as ghcr.io/<owner>/watchkeep:1.2.3, :1.2, and :latest, and publishes the
-# GitHub release with the notes that the tag carries.
+# A version tag (v1.2.3) starts this workflow. The tag comes from
+# release-tag.yml or from a local `scripts/release.sh`. The workflow builds the
+# image for linux/amd64 and linux/arm64 and pushes it to GHCR as
+# ghcr.io/<owner>/watchkeep:1.2.3, :1.2, and :latest, then publishes the GitHub
+# release with the notes that the tag carries.
 # The Dockerfile cross-compiles the arm64 binary, so one amd64 runner builds both.
+#
+# This workflow answers the tag only. It never makes one. Two triggers on one
+# workflow would run it twice per release, because the deploy key push of
+# release-tag.yml does start a workflow.
 name: Release
 
 on:
   push:
     tags: ["v*"]
-  workflow_dispatch:
-    inputs:
-      version:
-        description: "The version to release, for example 0.3.0. Empty takes the next version from the commits."
-        required: false
-        type: string
 
 permissions:
   contents: read
@@ -25,67 +22,13 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  tag:
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-    outputs:
-      tag: ${{ steps.pick.outputs.tag }}
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          # The whole history and every tag, because git-cliff reads the commits since the last tag.
-          fetch-depth: 0
-
-      - name: Refuse a manual run outside the default branch
-        # `gh workflow run --ref` and the Actions page can name any branch. A
-        # release of unmerged code must not reach the registry.
-        if: github.event_name == 'workflow_dispatch' && github.ref_name != github.event.repository.default_branch
-        run: |
-          echo "A manual release runs on the default branch only." >&2
-          exit 1
-
-      - if: github.event_name == 'workflow_dispatch'
-        uses: DeterminateSystems/nix-installer-action@main
-
-      - name: Make the release commit and the tag
-        if: github.event_name == 'workflow_dispatch'
-        env:
-          VERSION: ${{ inputs.version }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if [ -n "$VERSION" ]; then
-            nix develop --command scripts/release.sh "$VERSION"
-          else
-            nix develop --command scripts/release.sh
-          fi
-          # `--atomic`, so that a rejected branch update leaves no tag behind.
-          git push --atomic --follow-tags
-
-      - id: pick
-        name: Name the tag of this release
-        env:
-          EVENT: ${{ github.event_name }}
-          # A tag push carries the tag in the ref. A manual run takes the tag that the script made.
-          REF_TAG: ${{ github.ref_name }}
-        run: |
-          if [ "$EVENT" = workflow_dispatch ]; then
-            echo "tag=$(git describe --tags --abbrev=0 --match 'v*')" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=$REF_TAG" >> "$GITHUB_OUTPUT"
-          fi
-
   image:
-    needs: tag
     runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write
     steps:
       - uses: actions/checkout@v5
-        with:
-          ref: ${{ needs.tag.outputs.tag }}
 
       - uses: docker/setup-buildx-action@v3
 
@@ -99,10 +42,9 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/${{ github.repository }}
-          # `value` names the tag, because a manual run starts from a branch ref.
           tags: |
-            type=semver,pattern={{version}},value=${{ needs.tag.outputs.tag }}
-            type=semver,pattern={{major}}.{{minor}},value=${{ needs.tag.outputs.tag }}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
 
       - uses: docker/build-push-action@v6
         with:
@@ -117,21 +59,20 @@ jobs:
           provenance: false
 
   release:
-    needs: [tag, image]
+    needs: image
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ needs.tag.outputs.tag }}
           # The whole history, because the notes come from the annotated tag.
           fetch-depth: 0
 
       - name: Publish the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ needs.tag.outputs.tag }}
+          TAG: ${{ github.ref_name }}
         run: |
           # `%(contents)`, because git takes the first line of the annotation as the
           # subject and `%(contents:body)` would drop the first heading of the notes.

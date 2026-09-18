@@ -1,0 +1,59 @@
+# A release starts here, with one click in the Actions tab. This workflow makes
+# the release commit and the tag, with the version from the Conventional
+# Commits, and pushes both to the default branch. The tag push then starts
+# release.yml, which builds the image and publishes the GitHub release.
+#
+# The push uses the deploy key of RELEASE_SSH_KEY, never GITHUB_TOKEN, for two
+# reasons. The branch ruleset requires a pull request, and it names DeployKey
+# as a bypass actor. And a push that GITHUB_TOKEN makes starts no workflow, so
+# release.yml would never see the tag. Terraform owns the key, in arcoiro.
+name: Release tag
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "The version to release, for example 0.3.0. Empty takes the next version from the commits."
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # The whole history and every tag, because git-cliff reads the commits since the last tag.
+          fetch-depth: 0
+          ssh-key: ${{ secrets.RELEASE_SSH_KEY }}
+
+      - name: Refuse a run outside the default branch
+        # `gh workflow run --ref` and the Actions page can name any branch. A
+        # release of unmerged code must not reach the registry.
+        if: github.ref_name != github.event.repository.default_branch
+        run: |
+          echo "A release runs on the default branch only." >&2
+          exit 1
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Make the release commit and the tag
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ -n "$VERSION" ]; then
+            nix develop --command scripts/release.sh "$VERSION"
+          else
+            nix develop --command scripts/release.sh
+          fi
+          # `--atomic`, so that a rejected branch update leaves no tag behind.
+          git push --atomic --follow-tags

@@ -55,6 +55,7 @@ crate::text_enum! {
         PlexScrobble => "plex-scrobble",
         PlexStop => "plex-stop",
         PlexSync => "plex-sync",
+        Scrobble => "scrobble",
         Trakt => "trakt",
     }
 }
@@ -220,6 +221,20 @@ pub struct ExternalIds {
     pub imdb: Option<String>,
     pub tmdb: Option<String>,
     pub tvdb: Option<String>,
+}
+
+impl ExternalIds {
+    /// True when no provider id is present.
+    pub fn is_empty(&self) -> bool {
+        [
+            self.plex_guid.as_deref(),
+            self.imdb.as_deref(),
+            self.tmdb.as_deref(),
+            self.tvdb.as_deref(),
+        ]
+        .iter()
+        .all(|id| non_empty(*id).is_none())
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]

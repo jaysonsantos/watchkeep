@@ -3,16 +3,17 @@
 # Watchkeep
 
 Watchkeep is a self-hosted tracker for the movies and TV episodes that you
-watched. Plex sends webhooks to Watchkeep. Watchkeep records plays, playback
-positions, and ratings. A web UI and a JSON API show what you watched and what
-you did not watch.
+watched. Plex sends webhooks to Watchkeep. Other players send the same events
+to a generic webhook. Watchkeep records plays, playback positions, and ratings.
+A web UI and a JSON API show what you watched and what you did not watch.
 
-The server is one Rust binary. It serves the JSON API, the Plex webhook, and
-the web UI.
+The server is one Rust binary. It serves the JSON API, the webhooks, and the
+web UI.
 
 ## Features
 
 - Plex webhook scrobbling for movies and episodes: play, pause, resume, stop, scrobble, and rate.
+- Generic scrobble webhook for every other player, with TMDB, IMDb, or TVDB ids and one id per event.
 - Playback positions per movie and episode, with a "watched" threshold for stop events.
 - Full episode lists from a TMDB catalog database, so unwatched episodes are visible.
 - Optional Plex library sync that imports items, watch counts, and resume positions.
@@ -92,6 +93,99 @@ http://<watchkeep-host>:8484/webhook/plex?token=<WATCHKEEP_WEBHOOK_TOKEN>
 Plex sends events for every account on the server. Set `WATCHKEEP_PLEX_ACCOUNTS`
 to a comma-separated list of account titles or ids to accept only some of them.
 
+## Connect another player
+
+A media server or a player that is not Plex sends its events to
+`POST /webhook/scrobble`. The sender names the item with external ids, so it
+needs no Watchkeep id.
+
+```
+http://<watchkeep-host>:8484/webhook/scrobble?token=<WATCHKEEP_WEBHOOK_TOKEN>
+```
+
+The token also goes into the `x-webhook-token` header. The body is
+`application/json` and holds one event:
+
+```json
+{
+  "event_id": "01926f3a-8b7c-7d41-9e2f-5a6b7c8d9e0f",
+  "event": "progress",
+  "occurred_at": "2026-09-15T20:41:07Z",
+  "client": "my-media-server",
+  "account": "living-room",
+  "player": "Apple TV",
+  "media": {
+    "type": "episode",
+    "title": "The Wolf and the Lion",
+    "season": 1,
+    "number": 5,
+    "ids": { "tmdb": 63060 },
+    "show": {
+      "title": "Game of Thrones",
+      "year": 2011,
+      "ids": { "tmdb": 1399, "imdb": "tt0944947", "tvdb": "121361" }
+    }
+  },
+  "position_ms": 1520000,
+  "duration_ms": 3300000
+}
+```
+
+| Field | Required | Meaning |
+|---|---|---|
+| `event_id` | yes | A UUID from the sender. The sender repeats it when it sends the event again. |
+| `event` | yes | `start`, `progress`, `pause`, `stop`, `watched`, or `unwatched`. |
+| `occurred_at` | yes | The time of the event on the sender, RFC 3339. |
+| `client` | yes | The name of the sending application. |
+| `account` | no | The viewer on the sender. |
+| `player` | no | The device. The default is `client`. |
+| `media.type` | yes | `movie` or `episode`. |
+| `media.title`, `media.year` | no | The identity when no id matches. |
+| `media.ids` | no | `tmdb`, `imdb`, and `tvdb` of the movie or of the episode. `tmdb` and `tvdb` must be positive numbers; Watchkeep drops any other value. |
+| `media.show` | for episodes | `title`, `year`, and `ids` of the show. The show needs a title or an id of its own. |
+| `media.season`, `media.number` | for episodes | Season and episode number in TMDB order. |
+| `position_ms` | for `start`, `progress`, `pause`, `stop` | The playback position. |
+| `duration_ms` | no | The runtime that the player measured. It wins over the catalog runtime. |
+| `watched_at` | no | For `watched` only. The time of the play. The default is `occurred_at`. |
+
+What each event does:
+
+| Event | Result |
+|---|---|
+| `start`, `progress` | Save the position with state `playing`. |
+| `pause` | Save the position with state `paused`. |
+| `stop` | At or above `WATCHKEEP_WATCHED_THRESHOLD_PERCENT`, record a play. Below it, save the position with state `stopped`. |
+| `watched` | Record a play at `watched_at` and clear the position. |
+| `unwatched` | Remove every play of the item and clear the position. |
+
+The status code tells the sender what to do next:
+
+| Status | When | Sender action |
+|---|---|---|
+| `200` | The event was applied, was a duplicate, or was ignored for its account. | Remove the event. |
+| `400` | The JSON is not valid, or a required field is missing. | Remove the event. Do not retry. |
+| `401` | The token is not correct. | Stop the delivery. Keep the event. |
+| `422` | The event has no ids and no title, so no item can match. | Remove the event. Do not retry. |
+| `5xx` | A database or server error. | Retry later with the same `event_id`. |
+
+A position event that arrives after a play of the same window answers
+`already-watched` and writes nothing, so a watched item stays out of the
+in-progress list.
+
+Three rules make retries safe. A play carries its `event_id`, so a second
+delivery of the same event adds no second play and answers with the action
+`duplicate-event`. An event that is older than the stored position leaves the
+position alone and answers with `stale-event`. A play inside
+`WATCHKEEP_REWATCH_WINDOW_MINUTES` of a play that the item already has answers
+with `duplicate-play`, whether it is older or newer than that play.
+
+Events of one item apply one at a time, so two senders, or a sender and its
+own retry, cannot both pass a check and then both write.
+
+Set `WATCHKEEP_SCROBBLE_ACCOUNTS` to a comma-separated list of `account` values
+to accept only some viewers. The Webhooks page shows every event under the name
+`scrobble.<event>`.
+
 ## Load the TMDB catalog
 
 Watchkeep does not fetch TMDB data itself. It reads a central TMDB database
@@ -154,7 +248,7 @@ before the command: `watchkeep --port 9000 health`.
 
 | Command | Meaning |
 |---|---|
-| `watchkeep serve` | Serve the web UI, the JSON API, and the webhook. This is the default. |
+| `watchkeep serve` | Serve the web UI, the JSON API, and the webhooks. This is the default. |
 | `watchkeep sync` | Run a Plex library sync and print the report as JSON. |
 | `watchkeep trakt:import <zip> [--dry-run]` | Import a Trakt export and print the report as JSON. |
 | `watchkeep health` | Ask the server on this port for `/healthz`. Exit code 0 means healthy. |
@@ -173,6 +267,7 @@ Every setting is a flag and an environment variable. `--port 9000` and
 | `WATCHKEEP_WATCHED_THRESHOLD_PERCENT` | `85` | A stop event at or above this percentage records a play. |
 | `WATCHKEEP_REWATCH_WINDOW_MINUTES` | `360` | Two plays of one item inside this window count as one play. |
 | `WATCHKEEP_PLEX_ACCOUNTS` | empty | Accepted Plex account titles or ids. Empty accepts all. |
+| `WATCHKEEP_SCROBBLE_ACCOUNTS` | empty | Accepted accounts on `/webhook/scrobble`. Empty accepts all. |
 | `WATCHKEEP_PLEX_URL` | empty | Plex server URL for library sync. |
 | `WATCHKEEP_PLEX_TOKEN` | empty | Plex token for library sync. |
 | `WATCHKEEP_SYNC_INTERVAL_MINUTES` | `0` | Timer for library sync. `0` disables. |
@@ -281,6 +376,7 @@ UUID returns `400 Bad Request`.
 | `POST` / `DELETE` | `/api/shows/:id/hidden` | Hide a show from the unwatched list, or unhide it. |
 | `GET` | `/api/webhooks` | The last 100 webhook events. |
 | `POST` | `/webhook/plex?token=` | Plex webhook endpoint. Accepts multipart or JSON. |
+| `POST` | `/webhook/scrobble?token=` | Generic scrobble endpoint. Accepts JSON. |
 | `GET` | `/healthz` | Health check. Runs one query on the Watchkeep database. |
 
 An unknown `status` or `sort` value returns `400 Bad Request`.

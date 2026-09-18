@@ -10,12 +10,12 @@
 <div class="page-head">
   <div>
     <h1>Webhook log</h1>
-    <p class="sub">The last 100 calls that Plex sent. Use this page to check that Plex reaches Watchkeep.</p>
+    <p class="sub">The last 100 calls that Plex and other players sent. Use this page to check that they reach Watchkeep.</p>
   </div>
 </div>
 
 {#if data.events.length === 0}
-  <div class="empty">No webhook received yet. Add the webhook URL in Plex settings.</div>
+  <div class="empty">No webhook received yet. Add the webhook URL in Plex settings, or point another player at /webhook/scrobble.</div>
 {:else}
   <div class="table-wrap">
     <table>

@@ -35,6 +35,8 @@ pub const PAYLOAD_FIELD: &str = "payload";
 
 pub const WEBHOOK_PATH: &str = "/webhook/plex";
 
+pub const SCROBBLE_PATH: &str = "/webhook/scrobble";
+
 /// The time the fake clock starts at.
 pub const START: &str = "2026-01-01T12:00:00Z";
 
@@ -312,6 +314,59 @@ pub fn movie_payload(overrides: Value, metadata: Value) -> Value {
     merge(&mut payload["Metadata"], metadata);
     merge(&mut payload, overrides);
     payload
+}
+
+/// A generic scrobble body for a movie. `overrides` patches the top level.
+pub fn scrobble_movie(overrides: Value) -> Value {
+    let mut body = json!({
+        "event_id": "01926f3b-1c2d-7e3f-8a4b-5c6d7e8f9a0b",
+        "event": "progress",
+        "occurred_at": START,
+        "client": "my-media-server",
+        "account": "jayson",
+        "player": "Living room TV",
+        "media": {
+            "type": "movie",
+            "title": "Heat",
+            "year": 1995,
+            "ids": { "tmdb": 949, "imdb": "tt0113277" }
+        },
+        "position_ms": 1_000_000
+    });
+    merge(&mut body, overrides);
+    body
+}
+
+/// A generic scrobble body for an episode. `overrides` patches the top level.
+pub fn scrobble_episode(overrides: Value) -> Value {
+    let mut body = json!({
+        "event_id": "01926f3a-8b7c-7d41-9e2f-5a6b7c8d9e0f",
+        "event": "progress",
+        "occurred_at": START,
+        "client": "my-media-server",
+        "account": "jayson",
+        "player": "Apple TV",
+        "media": {
+            "type": "episode",
+            "title": "Good News About Hell",
+            "season": 1,
+            "number": 1,
+            "ids": { "tmdb": 1982925 },
+            "show": {
+                "title": "Severance",
+                "year": 2022,
+                "ids": { "tmdb": 95396, "imdb": "tt11280740", "tvdb": "371980" }
+            }
+        },
+        "position_ms": 1_000_000
+    });
+    merge(&mut body, overrides);
+    body
+}
+
+/// A `POST /webhook/scrobble` request with a JSON body.
+pub fn scrobble_request(body: &Value) -> Request<Body> {
+    json_request(Method::POST, SCROBBLE_PATH, body)
 }
 
 pub fn event(payload: &Value) -> PlexEvent {
