@@ -2,6 +2,16 @@
 
 Every notable change of Watchkeep. The entries come from the commit messages.
 
+## [0.4.0](https://github.com/jaysonsantos/watchkeep/releases/tag/v0.4.0) - 2026-09-18
+
+### Continuous integration
+
+- Split the release into a tag workflow and a tag answer (#28) ([356eb8d](https://github.com/jaysonsantos/watchkeep/commit/356eb8ddd3bb1fbaa0c1a8adbb7bf99908c19001))
+
+### Features
+
+- **webhook:** Add a generic scrobble endpoint (#6) ([347398f](https://github.com/jaysonsantos/watchkeep/commit/347398f6b83523118489afa31402f7d3bbab95f7))
+
 ## [0.3.0](https://github.com/jaysonsantos/watchkeep/releases/tag/v0.3.0) - 2026-09-17
 
 ### Build
