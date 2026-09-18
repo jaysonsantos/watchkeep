@@ -10,6 +10,8 @@ A web UI and a JSON API show what you watched and what you did not watch.
 The server is one Rust binary. It serves the JSON API, the webhooks, and the
 web UI.
 
+<p align="center"><img src="docs/demo.webp" width="900" alt="A walk through the Watchkeep web UI: dashboard, movies, shows, an episode list, recommendations, statistics, and history"></p>
+
 ## Features
 
 - Plex webhook scrobbling for movies and episodes: play, pause, resume, stop, scrobble, and rate.
