@@ -75,6 +75,31 @@ export function initials(title: string): string {
     .join("");
 }
 
+// region: ratings
+
+/** The bottom of the 0 to 10 scale that Trakt and Plex write. */
+export const MIN_USER_RATING = 0;
+
+/** The top of that scale. */
+export const MAX_USER_RATING = 10;
+
+/** The picker starts at 1. Zero is a stored Plex value; Clear removes the rating. */
+export const MIN_RATING_PICK = 1;
+
+/** The whole numbers the UI offers, from `MIN_RATING_PICK` to `MAX_USER_RATING`. */
+export const RATING_PICKS: readonly number[] = Array.from(
+  { length: MAX_USER_RATING - MIN_RATING_PICK + 1 },
+  (_, index) => MIN_RATING_PICK + index,
+);
+
+/** `★ 8/10`, or an empty string when there is no rating. */
+export function fmtRating(rating: number | null | undefined): string {
+  if (rating === null || rating === undefined) return "";
+  return `★ ${rating}/${MAX_USER_RATING}`;
+}
+
+// endregion: ratings
+
 // region: statistics
 
 const MS_PER_MINUTE = 60_000;

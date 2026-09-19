@@ -2,6 +2,7 @@
   import ActionButton from "$lib/components/ActionButton.svelte";
   import Pager from "$lib/components/Pager.svelte";
   import Poster from "$lib/components/Poster.svelte";
+  import RatingControl from "$lib/components/RatingControl.svelte";
   import Toolbar from "$lib/components/Toolbar.svelte";
   import { fmtDay, fmtDuration } from "$lib/format.ts";
   import { listUrl, pageCount } from "$lib/lists.ts";
@@ -37,9 +38,10 @@
         <div class="body">
           <span class="t">{movie.title}</span>
           <span class="m">
-            {movie.year ?? ""}{movie.year && movie.duration_ms ? " · " : ""}{fmtDuration(movie.duration_ms)}{movie.rating !== null ? ` · ★ ${movie.rating}` : ""}
+            {movie.year ?? ""}{movie.year && movie.duration_ms ? " · " : ""}{fmtDuration(movie.duration_ms)}
           </span>
           {#if movie.last_watched_at}<span class="m">Watched {fmtDay(movie.last_watched_at)}</span>{/if}
+          <RatingControl kind="movie" id={movie.id} value={movie.rating} compact />
           <div class="actions">
             {#if movie.play_count > 0}
               <ActionButton action="unwatch-movie" id={movie.id} label="Unwatch" small />

@@ -801,6 +801,17 @@ impl<C: DerefMut<Target = PgConnection>> Library<C> {
         .await?)
     }
 
+    pub async fn clear_rating(&mut self, kind: RatingKind, id: Uuid) -> Result<()> {
+        sqlx::query!(
+            "DELETE FROM ratings WHERE target_kind = $1 AND target_id = $2",
+            kind.as_str(),
+            id
+        )
+        .execute(self.conn())
+        .await?;
+        Ok(())
+    }
+
     // endregion: ratings
 
     // region: watchlist and hidden

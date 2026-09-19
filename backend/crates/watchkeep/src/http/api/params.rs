@@ -106,6 +106,16 @@ pub struct WatchedBody {
     pub watched_at: Option<String>,
 }
 
+/// `POST /api/ratings/:kind/:id`. The rating is on the 0 to 10 scale that
+/// Trakt and Plex write.
+#[derive(Debug, Default, Deserialize, ts_rs::TS)]
+#[ts(export)]
+#[serde(default)]
+pub struct RatingBody {
+    #[ts(optional)]
+    pub rating: Option<f64>,
+}
+
 /// `POST /api/movies` and `POST /api/shows`. Every field may be absent, so the
 /// TypeScript fields are optional, not nullable.
 #[derive(Debug, Default, Deserialize, ts_rs::TS)]
