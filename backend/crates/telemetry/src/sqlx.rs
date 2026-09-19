@@ -18,7 +18,7 @@
 //! `opentelemetry-semantic-conventions`, never from a string in this file. See
 //! <https://opentelemetry.io/docs/specs/semconv/database/database-spans/>.
 
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, SystemTime};
 
 use opentelemetry::trace::{Span as _, SpanBuilder, SpanKind, Tracer};
@@ -68,56 +68,56 @@ pub mod systems {
     pub const SQLITE: &str = "sqlite";
 }
 
+/// The port that PostgreSQL listens on without a setting.
+const DEFAULT_POSTGRESQL_PORT: u16 = 5432;
+
+/// The port that MySQL and MariaDB listen on without a setting.
+const DEFAULT_MYSQL_PORT: u16 = 3306;
+
 /// The name of a span whose statement gives no operation.
 const UNNAMED_STATEMENT: &str = "query";
 
 // region: configuration
 
-/// What the event cannot tell about the database. The conventions ask for these
-/// on every client span, and only the caller knows them.
-#[derive(Clone, Debug)]
-pub struct Database {
-    /// The value of `db.system.name`. The conventions require it. Use [`systems`].
-    pub system: &'static str,
-    /// `db.namespace`: the name of the database.
+/// The server that holds the database, as the conventions name it.
+///
+/// The process learns this when it opens the pool, never from the statement
+/// event. Build it from the connection settings of the driver, never from the
+/// connection URL as text: the URL carries the password.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Server {
+    /// `db.namespace`: the name of the database on the server.
     pub namespace: Option<String>,
-    /// `server.address`: the host of the database.
+    /// `server.address`: the host of the server.
     pub address: Option<String>,
-    /// `server.port`: the port of the database, when it is not the default one.
+    /// `server.port`: the port of the server. The conventions ask for it only
+    /// when it is not the default port of the system, so [`Self::with_address`]
+    /// takes the default one and drops it.
     pub port: Option<u16>,
 }
 
-impl Database {
-    /// A database with the system alone. Add the rest with the `with_` methods.
-    pub fn new(system: &'static str) -> Self {
-        Self {
-            system,
-            namespace: None,
-            address: None,
-            port: None,
-        }
-    }
-
-    pub fn postgresql() -> Self {
-        Self::new(systems::POSTGRESQL)
-    }
-
+impl Server {
     #[must_use]
     pub fn with_namespace(mut self, namespace: impl Into<String>) -> Self {
         self.namespace = Some(namespace.into());
         self
     }
 
+    /// The host, and the port when it is not `default_port`.
     #[must_use]
-    pub fn with_server(mut self, address: impl Into<String>, port: Option<u16>) -> Self {
+    pub fn with_address(
+        mut self,
+        address: impl Into<String>,
+        port: u16,
+        default_port: u16,
+    ) -> Self {
         self.address = Some(address.into());
-        self.port = port;
+        self.port = (port != default_port).then_some(port);
         self
     }
 
-    /// The attributes that every span of this database carries.
     fn attributes(&self) -> Vec<KeyValue> {
-        let mut attributes = vec![KeyValue::new(DB_SYSTEM_NAME, Value::from(self.system))];
+        let mut attributes = Vec::new();
         if let Some(namespace) = &self.namespace {
             attributes.push(KeyValue::new(DB_NAMESPACE, namespace.clone()));
         }
@@ -126,6 +126,75 @@ impl Database {
         }
         if let Some(port) = self.port {
             attributes.push(KeyValue::new(SERVER_PORT, i64::from(port)));
+        }
+        attributes
+    }
+}
+
+/// What the statement event cannot tell about the database. The conventions ask
+/// for these on every client span, and only the process knows them.
+///
+/// The system is known when the layer starts. The server is not: the subscriber
+/// starts before the process reads its command line, so [`describe`] fills it
+/// later. Every clone of one `Database` shares that one answer.
+///
+/// [`describe`]: Self::describe
+#[derive(Clone, Debug)]
+pub struct Database {
+    /// The value of `db.system.name`. The conventions require it. Use [`systems`].
+    system: &'static str,
+    server: Arc<OnceLock<Server>>,
+}
+
+impl Database {
+    /// A database with the system alone.
+    pub fn new(system: &'static str) -> Self {
+        Self {
+            system,
+            server: Arc::new(OnceLock::new()),
+        }
+    }
+
+    pub fn postgresql() -> Self {
+        Self::new(systems::POSTGRESQL)
+    }
+
+    /// The port that the conventions call the default one for this system.
+    pub fn default_port(&self) -> Option<u16> {
+        match self.system {
+            systems::POSTGRESQL => Some(DEFAULT_POSTGRESQL_PORT),
+            systems::MYSQL | systems::MARIADB => Some(DEFAULT_MYSQL_PORT),
+            _ => None,
+        }
+    }
+
+    /// Names the server of this database. The process calls it once, when it
+    /// opens the pool. It answers `false` when the server already has a name,
+    /// and then changes nothing.
+    pub fn describe(&self, server: Server) -> bool {
+        self.server.set(server).is_ok()
+    }
+
+    /// The server for a database that the caller knows up front, for example in
+    /// a test. [`describe`] is the way of a process that learns it later.
+    ///
+    /// [`describe`]: Self::describe
+    #[must_use]
+    pub fn with_server(self, server: Server) -> Self {
+        self.describe(server);
+        self
+    }
+
+    /// The server of this database, once something named it.
+    pub fn server(&self) -> Option<&Server> {
+        self.server.get()
+    }
+
+    /// The attributes that every span of this database carries.
+    fn attributes(&self) -> Vec<KeyValue> {
+        let mut attributes = vec![KeyValue::new(DB_SYSTEM_NAME, Value::from(self.system))];
+        if let Some(server) = self.server.get() {
+            attributes.extend(server.attributes());
         }
         attributes
     }
@@ -686,6 +755,63 @@ mod tests {
     /// `storage` open with a line comment, and a literal can hold a
     /// parenthesis or the two dashes of a comment.
     #[test]
+    fn the_server_carries_no_port_when_it_is_the_default_one() {
+        let default = Server::default().with_address("db.example", 5432, 5432);
+        assert_eq!(default.address.as_deref(), Some("db.example"));
+        assert_eq!(default.port, None);
+
+        let other = Server::default().with_address("db.example", 6432, 5432);
+        assert_eq!(other.port, Some(6432));
+    }
+
+    #[test]
+    fn a_database_without_a_server_carries_the_system_alone() {
+        let attributes = Database::postgresql().attributes();
+        let names: Vec<String> = attributes
+            .iter()
+            .map(|pair| pair.key.as_str().to_owned())
+            .collect();
+        assert_eq!(names, vec![DB_SYSTEM_NAME.to_owned()]);
+    }
+
+    /// The process names the server after the subscriber starts, and every
+    /// clone of the database sees the answer.
+    #[test]
+    fn describe_names_the_server_of_every_clone() {
+        let database = Database::postgresql();
+        let clone = database.clone();
+        assert!(
+            database.describe(Server::default().with_namespace("watchkeep").with_address(
+                "db.example",
+                6432,
+                5432
+            ))
+        );
+
+        let attribute = |key: &str| {
+            clone
+                .attributes()
+                .iter()
+                .find(|pair| pair.key.as_str() == key)
+                .map(|pair| pair.value.to_string())
+        };
+        assert_eq!(attribute(DB_NAMESPACE).as_deref(), Some("watchkeep"));
+        assert_eq!(attribute(SERVER_ADDRESS).as_deref(), Some("db.example"));
+        assert_eq!(attribute(SERVER_PORT).as_deref(), Some("6432"));
+
+        // The server keeps the name it has.
+        assert!(!clone.describe(Server::default().with_namespace("other")));
+        assert_eq!(attribute(DB_NAMESPACE).as_deref(), Some("watchkeep"));
+    }
+
+    #[test]
+    fn the_default_port_follows_the_system() {
+        assert_eq!(Database::postgresql().default_port(), Some(5432));
+        assert_eq!(Database::new(systems::MYSQL).default_port(), Some(3306));
+        assert_eq!(Database::new(systems::SQLITE).default_port(), None);
+    }
+
+    #[test]
     fn a_comment_and_a_literal_name_nothing() {
         let cases = [
             // The head of `0001_initial.sql`.
@@ -735,7 +861,7 @@ mod tests {
             .with(tracing_opentelemetry::layer().with_tracer(tracer.clone()))
             .with(layer(
                 tracer,
-                Database::postgresql().with_namespace("watchkeep"),
+                Database::postgresql().with_server(Server::default().with_namespace("watchkeep")),
             ));
 
         ::tracing::subscriber::with_default(subscriber, || {

@@ -836,6 +836,18 @@ async fn refuses_a_tmdb_or_tvdb_id_that_names_nothing() -> Result<()> {
     t.close().await
 }
 
+/// A request for the held item never answers by itself, so this bound only has
+/// to outlast the start of the wait.
+const HELD_ITEM_BOUND: Duration = Duration::from_millis(500);
+
+/// A request for a free item answers. The bound is wide because it measures a
+/// machine, not the code: the pool of the test holds three connections, and the
+/// cancelled request of the held item gives its connection back in its own
+/// time. A request that waits for the held item answers inside no bound at all,
+/// because only the rollback below frees that item, so a wide bound proves the
+/// same thing as a narrow one.
+const FREE_ITEM_BOUND: Duration = Duration::from_secs(30);
+
 /// The checks of an event and its writes must not interleave with another
 /// event of the same item, so the handler holds the item for its transaction.
 /// A held item makes the next event wait; another item stays free.
@@ -856,11 +868,7 @@ async fn an_event_waits_for_the_item_it_needs() -> Result<()> {
         "occurred_at": "2026-01-01T13:00:00Z",
         "position_ms": 2_000_000,
     }));
-    let waited = tokio::time::timeout(
-        Duration::from_millis(500),
-        call(&app, scrobble_request(&next)),
-    )
-    .await;
+    let waited = tokio::time::timeout(HELD_ITEM_BOUND, call(&app, scrobble_request(&next))).await;
     assert!(waited.is_err(), "the handler must wait for the held item");
 
     // Another movie is free while the first one is held.
@@ -872,12 +880,9 @@ async fn an_event_waits_for_the_item_it_needs() -> Result<()> {
         "media": { "type": "movie", "title": "Collateral", "ids": { "tmdb": 4638 } },
         "position_ms": 60_000
     });
-    let free = tokio::time::timeout(
-        Duration::from_millis(500),
-        call(&app, scrobble_request(&other)),
-    )
-    .await
-    .expect("another item must not wait");
+    let free = tokio::time::timeout(FREE_ITEM_BOUND, call(&app, scrobble_request(&other)))
+        .await
+        .expect("another item must not wait");
     assert_eq!(free.0, StatusCode::OK);
 
     held.rollback().await?;

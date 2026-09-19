@@ -18,4 +18,5 @@ pub mod testing;
 pub use constants::{SERVICE_NAME, SERVICE_VERSION};
 pub use propagation::{HeaderExtractor, HeaderInjector, PROPAGATOR, context_of, inject_into};
 pub use report_error::{error_type_name, init_error_reporting};
+pub use sqlx::{Database, Server};
 pub use tracing::{EXPORT_GRACE, OtelGuard, configure_tracing, root_span};
