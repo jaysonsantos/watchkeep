@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "WITH affinity AS (\n                 SELECT * FROM unnest($1::bigint[], $2::float8[]) AS t (genre_id, weight)\n               ), pool AS (\n                 SELECT s.id FROM tmdb_show s\n                 WHERE s.vote_count >= $3 AND NOT (s.id = ANY($4))\n                   AND s.first_air_date IS NOT NULL AND s.first_air_date <= $5\n                 ORDER BY s.weighted_rating DESC NULLS LAST, s.id DESC\n                 LIMIT $6\n               ), scored AS (\n                 SELECT p.id,\n                        SUM(COALESCE(a.weight, 0.0)) / sqrt(COUNT(*)::float8) AS affinity,\n                        array_agg(g.genre_id) AS genres\n                 FROM pool p\n                 JOIN tmdb_show_genre g ON g.show_id = p.id\n                 LEFT JOIN affinity a ON a.genre_id = g.genre_id\n                 GROUP BY p.id\n               )\n               SELECT s2.id, s2.imdb_id, s2.tvdb_id, s2.name_en, s2.name_pt, s2.original_name,\n                      s2.first_air_date, s2.poster_path_en, s2.poster_path_pt,\n                      s2.overview_en, s2.overview_pt, s2.original_language,\n                      s2.number_of_seasons::int AS number_of_seasons,\n                      s2.number_of_episodes::int AS number_of_episodes,\n                      sc.affinity AS \"affinity!\", sc.genres AS \"genres!: Vec<i64>\",\n                      COALESCE(s2.weighted_rating, 0.0) AS \"quality!\"\n               FROM scored sc JOIN tmdb_show s2 ON s2.id = sc.id\n               WHERE sc.affinity > 0\n               ORDER BY sc.affinity * COALESCE(s2.weighted_rating, 0.0) DESC, s2.id DESC\n               LIMIT $7",
+  "query": "WITH affinity AS (\n                 SELECT * FROM unnest($1::bigint[], $2::float8[]) AS t (genre_id, weight)\n               ), boost AS (\n                 SELECT * FROM unnest($10::text[], $11::float8[]) AS t (code, boost)\n               ), pool AS (\n                 SELECT s.id FROM tmdb_show s\n                 WHERE s.vote_count >= $3 AND NOT (s.id = ANY($4))\n                   AND s.first_air_date IS NOT NULL AND s.first_air_date <= $5\n                 ORDER BY s.weighted_rating DESC NULLS LAST, s.id DESC\n                 LIMIT $6\n               ), scored AS (\n                 SELECT p.id,\n                        SUM(COALESCE(a.weight, 0.0)) / sqrt(COUNT(*)::float8) AS affinity,\n                        array_agg(g.genre_id) AS genres\n                 FROM pool p\n                 JOIN tmdb_show_genre g ON g.show_id = p.id\n                 LEFT JOIN affinity a ON a.genre_id = g.genre_id\n                 GROUP BY p.id\n               ), keyed AS (\n                 SELECT s.id, s.affinity, s.genres,\n                        (\n                          SELECT ARRAY(\n                            SELECT u.genre_id\n                            FROM unnest(s.genres) AS u(genre_id)\n                            JOIN affinity a ON a.genre_id = u.genre_id\n                            WHERE a.weight > 0\n                            ORDER BY a.weight DESC, u.genre_id\n                            LIMIT $9\n                          )\n                        ) AS genre_key\n                 FROM scored s\n                 WHERE s.affinity > 0\n               ), ranked AS (\n                 SELECT s2.id, s2.imdb_id, s2.tvdb_id, s2.name_en, s2.name_pt, s2.original_name,\n                        s2.first_air_date, s2.poster_path_en, s2.poster_path_pt,\n                        s2.overview_en, s2.overview_pt, s2.original_language,\n                        s2.number_of_seasons::int AS number_of_seasons,\n                        s2.number_of_episodes::int AS number_of_episodes,\n                        k.affinity, k.genres,\n                        COALESCE(s2.weighted_rating, 0.0) AS quality,\n                        k.affinity * COALESCE(s2.weighted_rating, 0.0) * COALESCE(b.boost, 1.0) AS score,\n                        ROW_NUMBER() OVER (\n                          PARTITION BY k.genre_key\n                          ORDER BY k.affinity * COALESCE(s2.weighted_rating, 0.0) * COALESCE(b.boost, 1.0) DESC, k.id DESC\n                        ) AS rn\n                 FROM keyed k JOIN tmdb_show s2 ON s2.id = k.id\n                 LEFT JOIN boost b ON b.code = s2.original_language\n               )\n               SELECT id, imdb_id, tvdb_id, name_en, name_pt, original_name, first_air_date,\n                      poster_path_en, poster_path_pt, overview_en, overview_pt, original_language,\n                      number_of_seasons, number_of_episodes,\n                      affinity AS \"affinity!\", genres AS \"genres!: Vec<i64>\",\n                      quality AS \"quality!\"\n               FROM ranked\n               WHERE rn <= $8\n               ORDER BY score DESC, id DESC\n               LIMIT $7",
   "describe": {
     "columns": [
       {
@@ -174,7 +174,11 @@
         "Int8Array",
         "Text",
         "Int8",
-        "Int8"
+        "Int8",
+        "Int8",
+        "Int8",
+        "TextArray",
+        "Float8Array"
       ]
     },
     "nullable": [
@@ -197,5 +201,5 @@
       null
     ]
   },
-  "hash": "b36da64a87148254e08c26594d3483ba523f2dcf475c46bf367f54f3fd7ae12b"
+  "hash": "77ea5b7dd04cccc40661b376ada641092768400e7cce54f04c18b5966201ee0a"
 }

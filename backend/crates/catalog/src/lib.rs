@@ -69,6 +69,11 @@ pub const MIN_CANDIDATE_VOTES: i64 = 100;
 /// `weighted_rating` index orders the pool, so the query reads no more rows.
 pub const CANDIDATE_POOL: i64 = 5_000;
 
+/// How many of the strongest matching genres form the group of a candidate.
+/// The recommender uses the same count for the reason line, so the SQL cap
+/// per group and the list cap agree.
+pub const CANDIDATE_GROUP_GENRES: i64 = 2;
+
 /// The title of an item that has no name in any language.
 const UNTITLED_PREFIX: &str = "TMDB";
 
@@ -125,6 +130,16 @@ impl GenreWeights {
     pub fn is_empty(&self) -> bool {
         self.ids.is_empty()
     }
+}
+
+/// What the original language of a candidate does to its score, as the two
+/// arrays that a candidate query takes. The caller owns the number, the catalog
+/// only multiplies the score by it, so that the cap per genre group keeps the
+/// rows that the final score keeps. A language that is absent counts as 1.0.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LanguageBoosts {
+    pub codes: Vec<String>,
+    pub boosts: Vec<f64>,
 }
 
 /// A catalog item that matches the genre affinity, with the parts of the score
@@ -779,13 +794,18 @@ impl Catalog {
     }
 
     /// Released movies that match the genre affinity, best first. `exclude` holds
-    /// the TMDB ids that the library already has.
+    /// the TMDB ids that the library already has. `max_per_group` keeps lower
+    /// ranked genre sets in the result: without it, one pair can fill `limit`.
+    /// `languages` carries the language boost of the caller, so that the cap per
+    /// group weighs a candidate by the score that the caller gives it.
     pub async fn movie_candidates(
         &self,
         genres: &GenreWeights,
+        languages: &LanguageBoosts,
         exclude: &[i64],
         today: NaiveDate,
         limit: i64,
+        max_per_group: i64,
     ) -> Result<Vec<Candidate<CatalogMovie>>> {
         if genres.is_empty() {
             return Ok(Vec::new());
@@ -794,6 +814,8 @@ impl Catalog {
         let rows = sqlx::query!(
             r#"WITH affinity AS (
                  SELECT * FROM unnest($1::bigint[], $2::float8[]) AS t (genre_id, weight)
+               ), boost AS (
+                 SELECT * FROM unnest($10::text[], $11::float8[]) AS t (code, boost)
                ), pool AS (
                  SELECT m.id FROM tmdb_movie m
                  WHERE m.vote_count >= $3 AND NOT (m.id = ANY($4))
@@ -809,15 +831,41 @@ impl Catalog {
                  JOIN tmdb_movie_genre g ON g.movie_id = p.id
                  LEFT JOIN affinity a ON a.genre_id = g.genre_id
                  GROUP BY p.id
+               ), keyed AS (
+                 SELECT s.id, s.affinity, s.genres,
+                        (
+                          SELECT ARRAY(
+                            SELECT u.genre_id
+                            FROM unnest(s.genres) AS u(genre_id)
+                            JOIN affinity a ON a.genre_id = u.genre_id
+                            WHERE a.weight > 0
+                            ORDER BY a.weight DESC, u.genre_id
+                            LIMIT $9
+                          )
+                        ) AS genre_key
+                 FROM scored s
+                 WHERE s.affinity > 0
+               ), ranked AS (
+                 SELECT m.id, m.imdb_id, m.title_en, m.title_pt, m.original_title, m.release_date,
+                        m.runtime::int AS runtime, m.poster_path_en, m.poster_path_pt,
+                        m.overview_en, m.overview_pt, m.original_language,
+                        k.affinity, k.genres,
+                        COALESCE(m.weighted_rating, 0.0) AS quality,
+                        k.affinity * COALESCE(m.weighted_rating, 0.0) * COALESCE(b.boost, 1.0) AS score,
+                        ROW_NUMBER() OVER (
+                          PARTITION BY k.genre_key
+                          ORDER BY k.affinity * COALESCE(m.weighted_rating, 0.0) * COALESCE(b.boost, 1.0) DESC, k.id DESC
+                        ) AS rn
+                 FROM keyed k JOIN tmdb_movie m ON m.id = k.id
+                 LEFT JOIN boost b ON b.code = m.original_language
                )
-               SELECT m.id, m.imdb_id, m.title_en, m.title_pt, m.original_title, m.release_date,
-                      m.runtime::int AS runtime, m.poster_path_en, m.poster_path_pt,
-                      m.overview_en, m.overview_pt, m.original_language,
-                      s.affinity AS "affinity!", s.genres AS "genres!: Vec<i64>",
-                      COALESCE(m.weighted_rating, 0.0) AS "quality!"
-               FROM scored s JOIN tmdb_movie m ON m.id = s.id
-               WHERE s.affinity > 0
-               ORDER BY s.affinity * COALESCE(m.weighted_rating, 0.0) DESC, m.id DESC
+               SELECT id, imdb_id, title_en, title_pt, original_title, release_date,
+                      runtime, poster_path_en, poster_path_pt, overview_en, overview_pt,
+                      original_language, affinity AS "affinity!", genres AS "genres!: Vec<i64>",
+                      quality AS "quality!"
+               FROM ranked
+               WHERE rn <= $8
+               ORDER BY score DESC, id DESC
                LIMIT $7"#,
             &genres.ids,
             &genres.weights,
@@ -825,7 +873,11 @@ impl Catalog {
             exclude,
             today,
             CANDIDATE_POOL,
-            limit
+            limit,
+            max_per_group,
+            CANDIDATE_GROUP_GENRES,
+            &languages.codes,
+            &languages.boosts
         )
         .fetch_all(&self.pool)
         .await?;
@@ -853,13 +905,17 @@ impl Catalog {
             .collect())
     }
 
-    /// Shows that match the genre affinity, best first.
+    /// Shows that match the genre affinity, best first. `max_per_group` and
+    /// `languages` are the same as for movies: one genre set must not fill
+    /// `limit`, and the cap weighs a candidate by the score of the caller.
     pub async fn show_candidates(
         &self,
         genres: &GenreWeights,
+        languages: &LanguageBoosts,
         exclude: &[i64],
         today: NaiveDate,
         limit: i64,
+        max_per_group: i64,
     ) -> Result<Vec<Candidate<CatalogShow>>> {
         if genres.is_empty() {
             return Ok(Vec::new());
@@ -868,6 +924,8 @@ impl Catalog {
         let rows = sqlx::query!(
             r#"WITH affinity AS (
                  SELECT * FROM unnest($1::bigint[], $2::float8[]) AS t (genre_id, weight)
+               ), boost AS (
+                 SELECT * FROM unnest($10::text[], $11::float8[]) AS t (code, boost)
                ), pool AS (
                  SELECT s.id FROM tmdb_show s
                  WHERE s.vote_count >= $3 AND NOT (s.id = ANY($4))
@@ -882,17 +940,44 @@ impl Catalog {
                  JOIN tmdb_show_genre g ON g.show_id = p.id
                  LEFT JOIN affinity a ON a.genre_id = g.genre_id
                  GROUP BY p.id
+               ), keyed AS (
+                 SELECT s.id, s.affinity, s.genres,
+                        (
+                          SELECT ARRAY(
+                            SELECT u.genre_id
+                            FROM unnest(s.genres) AS u(genre_id)
+                            JOIN affinity a ON a.genre_id = u.genre_id
+                            WHERE a.weight > 0
+                            ORDER BY a.weight DESC, u.genre_id
+                            LIMIT $9
+                          )
+                        ) AS genre_key
+                 FROM scored s
+                 WHERE s.affinity > 0
+               ), ranked AS (
+                 SELECT s2.id, s2.imdb_id, s2.tvdb_id, s2.name_en, s2.name_pt, s2.original_name,
+                        s2.first_air_date, s2.poster_path_en, s2.poster_path_pt,
+                        s2.overview_en, s2.overview_pt, s2.original_language,
+                        s2.number_of_seasons::int AS number_of_seasons,
+                        s2.number_of_episodes::int AS number_of_episodes,
+                        k.affinity, k.genres,
+                        COALESCE(s2.weighted_rating, 0.0) AS quality,
+                        k.affinity * COALESCE(s2.weighted_rating, 0.0) * COALESCE(b.boost, 1.0) AS score,
+                        ROW_NUMBER() OVER (
+                          PARTITION BY k.genre_key
+                          ORDER BY k.affinity * COALESCE(s2.weighted_rating, 0.0) * COALESCE(b.boost, 1.0) DESC, k.id DESC
+                        ) AS rn
+                 FROM keyed k JOIN tmdb_show s2 ON s2.id = k.id
+                 LEFT JOIN boost b ON b.code = s2.original_language
                )
-               SELECT s2.id, s2.imdb_id, s2.tvdb_id, s2.name_en, s2.name_pt, s2.original_name,
-                      s2.first_air_date, s2.poster_path_en, s2.poster_path_pt,
-                      s2.overview_en, s2.overview_pt, s2.original_language,
-                      s2.number_of_seasons::int AS number_of_seasons,
-                      s2.number_of_episodes::int AS number_of_episodes,
-                      sc.affinity AS "affinity!", sc.genres AS "genres!: Vec<i64>",
-                      COALESCE(s2.weighted_rating, 0.0) AS "quality!"
-               FROM scored sc JOIN tmdb_show s2 ON s2.id = sc.id
-               WHERE sc.affinity > 0
-               ORDER BY sc.affinity * COALESCE(s2.weighted_rating, 0.0) DESC, s2.id DESC
+               SELECT id, imdb_id, tvdb_id, name_en, name_pt, original_name, first_air_date,
+                      poster_path_en, poster_path_pt, overview_en, overview_pt, original_language,
+                      number_of_seasons, number_of_episodes,
+                      affinity AS "affinity!", genres AS "genres!: Vec<i64>",
+                      quality AS "quality!"
+               FROM ranked
+               WHERE rn <= $8
+               ORDER BY score DESC, id DESC
                LIMIT $7"#,
             &genres.ids,
             &genres.weights,
@@ -900,7 +985,11 @@ impl Catalog {
             exclude,
             today,
             CANDIDATE_POOL,
-            limit
+            limit,
+            max_per_group,
+            CANDIDATE_GROUP_GENRES,
+            &languages.codes,
+            &languages.boosts
         )
         .fetch_all(&self.pool)
         .await?;
@@ -931,33 +1020,51 @@ impl Catalog {
     }
 
     /// Released movies of the given collections that the library does not have.
+    /// `max_per_collection` caps every collection before `limit` cuts the rows,
+    /// so that a collection with many missing parts leaves the others in. The
+    /// cap keeps the best rated parts: the caller weighs every part of one
+    /// collection the same, so the rating alone orders them there too.
     pub async fn collection_movies(
         &self,
         collection_ids: &[i64],
         exclude: &[i64],
         today: NaiveDate,
         limit: i64,
+        max_per_collection: i64,
     ) -> Result<Vec<CollectionMovie>> {
         if collection_ids.is_empty() {
             return Ok(Vec::new());
         }
         let today = today.format(DATE_FORMAT).to_string();
         let rows = sqlx::query!(
-            r#"SELECT m.id, m.imdb_id, m.title_en, m.title_pt, m.original_title, m.release_date,
-                      m.runtime::int AS runtime, m.poster_path_en, m.poster_path_pt,
-                      m.overview_en, m.overview_pt,
-                      m.collection_id AS "collection_id!", c.name_en, c.name_pt,
-                      COALESCE(m.weighted_rating, 0.0) AS "quality!"
-               FROM tmdb_movie m JOIN collection c ON c.id = m.collection_id
-               WHERE m.collection_id = ANY($1) AND NOT (m.id = ANY($2))
-                 AND m.release_date IS NOT NULL AND m.release_date <= $3
-                 AND m.adult IS NOT TRUE
-               ORDER BY m.release_date, m.id
+            r#"WITH ranked AS (
+                 SELECT m.id, m.imdb_id, m.title_en, m.title_pt, m.original_title, m.release_date,
+                        m.runtime::int AS runtime, m.poster_path_en, m.poster_path_pt,
+                        m.overview_en, m.overview_pt,
+                        m.collection_id, c.name_en, c.name_pt,
+                        COALESCE(m.weighted_rating, 0.0) AS quality,
+                        ROW_NUMBER() OVER (
+                          PARTITION BY m.collection_id
+                          ORDER BY COALESCE(m.weighted_rating, 0.0) DESC, m.release_date, m.id
+                        ) AS rn
+                 FROM tmdb_movie m JOIN collection c ON c.id = m.collection_id
+                 WHERE m.collection_id = ANY($1) AND NOT (m.id = ANY($2))
+                   AND m.release_date IS NOT NULL AND m.release_date <= $3
+                   AND m.adult IS NOT TRUE
+               )
+               SELECT id, imdb_id, title_en, title_pt, original_title, release_date,
+                      runtime, poster_path_en, poster_path_pt, overview_en, overview_pt,
+                      collection_id AS "collection_id!", name_en, name_pt,
+                      quality AS "quality!"
+               FROM ranked
+               WHERE rn <= $5
+               ORDER BY release_date, id
                LIMIT $4"#,
             collection_ids,
             exclude,
             today,
-            limit
+            limit,
+            max_per_collection
         )
         .fetch_all(&self.pool)
         .await?;
