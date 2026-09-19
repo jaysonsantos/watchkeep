@@ -19,6 +19,8 @@ export type { PeriodCount } from "./generated/PeriodCount.ts";
 export type { PlayState } from "./generated/PlayState.ts";
 export type { PlayTotals } from "./generated/PlayTotals.ts";
 export type { ProgressView } from "./generated/ProgressView.ts";
+export type { RatingKind } from "./generated/RatingKind.ts";
+export type { RatingView } from "./generated/RatingView.ts";
 export type { Recommendation } from "./generated/Recommendation.ts";
 export type { Recommendations } from "./generated/Recommendations.ts";
 export type { SearchResult } from "./generated/SearchResult.ts";

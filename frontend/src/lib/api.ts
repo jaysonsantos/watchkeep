@@ -10,7 +10,7 @@ import {
   sortOf,
   type WatchFilter,
 } from "./lists.ts";
-import type { AddMediaBody, Id, MediaKind } from "./types.ts";
+import type { AddMediaBody, Id, MediaKind, RatingKind } from "./types.ts";
 
 /** The prefix of every API route. */
 export const API_BASE = "/api";
@@ -200,4 +200,19 @@ export async function act(
 ): Promise<void> {
   const request = actionRequest(action, id, fields);
   await send(request.method, request.path);
+}
+
+/** `/api/ratings/:kind/:id`. `kind` is `movie`, `show`, or `episode`. */
+export function ratingPath(kind: RatingKind, id: Id): string {
+  return `${API_BASE}/ratings/${kind}/${id}`;
+}
+
+/** Set the user rating of a library item. The value is on the 0 to 10 scale. */
+export async function setRating(kind: RatingKind, id: Id, rating: number): Promise<void> {
+  await send("POST", ratingPath(kind, id), { rating });
+}
+
+/** Remove the user rating of a library item. */
+export async function clearRating(kind: RatingKind, id: Id): Promise<void> {
+  await send("DELETE", ratingPath(kind, id));
 }

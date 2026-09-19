@@ -41,6 +41,8 @@ pub struct MergedEpisode {
     pub position_ms: Option<i64>,
     pub progress_state: Option<PlayState>,
     pub tmdb_id: Option<i64>,
+    /// The stored user rating of this episode, when the episode has a local row.
+    pub rating: Option<f64>,
 }
 
 #[derive(Clone, Debug, Serialize, ts_rs::TS)]
@@ -174,6 +176,7 @@ pub fn merge_episodes(
                 position_ms: None,
                 progress_state: None,
                 tmdb_id: Some(episode.tmdb_id),
+                rating: None,
             },
         );
     }
@@ -197,6 +200,7 @@ pub fn merge_episodes(
             position_ms: view.position_ms,
             progress_state: view.progress_state,
             tmdb_id: view.tmdb_id.or_else(|| existing.and_then(|e| e.tmdb_id)),
+            rating: view.rating,
         };
         by_number.insert(key, merged);
     }

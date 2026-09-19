@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT e.id, e.show_id, e.season, e.number, e.title, e.plex_guid, e.imdb_id, e.tmdb_id, e.tvdb_id,\n                      e.duration_ms, e.aired_at, e.created_at, e.updated_at,\n                      COUNT(p.id) AS \"play_count!\",\n                      MAX(p.watched_at) AS \"last_watched_at?\",\n                      pr.position_ms AS \"position_ms?\",\n                      pr.state AS \"progress_state?: PlayState\"\n               FROM episodes e\n               LEFT JOIN plays p ON p.target_kind = $2 AND p.target_id = e.id\n               LEFT JOIN progress pr ON pr.target_kind = $2 AND pr.target_id = e.id\n               WHERE e.show_id = $1\n               GROUP BY e.id, pr.position_ms, pr.state\n               ORDER BY e.season, e.number",
+  "query": "SELECT e.id, e.show_id, e.season, e.number, e.title, e.plex_guid, e.imdb_id, e.tmdb_id, e.tvdb_id,\n                      e.duration_ms, e.aired_at, e.created_at, e.updated_at,\n                      COUNT(p.id) AS \"play_count!\",\n                      MAX(p.watched_at) AS \"last_watched_at?\",\n                      pr.position_ms AS \"position_ms?\",\n                      pr.state AS \"progress_state?: PlayState\",\n                      (SELECT r.rating FROM ratings r WHERE r.target_kind = $3 AND r.target_id = e.id) AS \"rating?\"\n               FROM episodes e\n               LEFT JOIN plays p ON p.target_kind = $2 AND p.target_id = e.id\n               LEFT JOIN progress pr ON pr.target_kind = $2 AND pr.target_id = e.id\n               WHERE e.show_id = $1\n               GROUP BY e.id, pr.position_ms, pr.state\n               ORDER BY e.season, e.number",
   "describe": {
     "columns": [
       {
@@ -179,11 +179,18 @@
             "name": "state"
           }
         }
+      },
+      {
+        "ordinal": 17,
+        "name": "rating?",
+        "type_info": "Float8",
+        "origin": "Expression"
       }
     ],
     "parameters": {
       "Left": [
         "Uuid",
+        "Text",
         "Text"
       ]
     },
@@ -204,8 +211,9 @@
       null,
       null,
       false,
-      false
+      false,
+      null
     ]
   },
-  "hash": "758b82e32876328a490c2f3d0b13194910517921f8787b5adfa24d26687e701c"
+  "hash": "2887fbd70d2daea41df810f549f0c251c7ab2264096616866dadcb946f7fd108"
 }

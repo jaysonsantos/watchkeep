@@ -3,7 +3,7 @@
   import Poster from "$lib/components/Poster.svelte";
   import ProgressBar from "$lib/components/ProgressBar.svelte";
   import Toolbar from "$lib/components/Toolbar.svelte";
-  import { fmtDay } from "$lib/format.ts";
+  import { fmtDay, fmtRating } from "$lib/format.ts";
   import { listUrl, pageCount } from "$lib/lists.ts";
   import type { PageProps } from "./$types";
 
@@ -45,7 +45,7 @@
         </Poster>
         <div class="body">
           <span class="t">{show.title}</span>
-          <span class="m">{show.year ?? ""}{show.year ? " · " : ""}{show.watched_count} / {show.total_episodes} episodes</span>
+          <span class="m">{show.year ?? ""}{show.year ? " · " : ""}{show.watched_count} / {show.total_episodes} episodes{show.rating !== null ? ` · ${fmtRating(show.rating)}` : ""}</span>
           {#if show.last_watched_at}<span class="m">Last {fmtDay(show.last_watched_at)}</span>{/if}
         </div>
       </a>

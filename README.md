@@ -25,6 +25,7 @@ web UI.
 - Recommendations from the watch history: movies, shows, the rest of a collection, and shows that return.
 - Add page: search the catalog by title and add a movie or show to the library or the watchlist.
 - Manual actions: mark a movie, an episode, or a whole show watched or unwatched.
+- User ratings on a movie, a show, or an episode. Set or clear a rating in the UI. Plex `media.rate` and a Trakt import write the same store.
 - Web UI with dashboard, movies, shows, recommendations, watchlist, history, statistics, add page, and a webhook log. The UI needs JavaScript.
 - PostgreSQL storage through `sqlx`. The compiler checks every query against the schema. One binary, no runtime dependencies.
 
@@ -234,7 +235,7 @@ The import reads these files from the ZIP:
 | File | Result |
 |---|---|
 | `watched-history-*.json` | One play per record, with the Trakt history id. A second import adds no duplicate. |
-| `ratings-movies.json`, `ratings-shows.json`, `ratings-episodes-*.json` | Ratings. |
+| `ratings-movies.json`, `ratings-shows.json`, `ratings-episodes-*.json` | Ratings on the 0 to 10 scale. Numbered files such as `ratings-episodes-1.json` count too. A later `rated_at` for the same item wins. `ratings-seasons.json` is ignored: Watchkeep has no season ratings. An episode rating does not fill the show rating. |
 | `watched-playback.json` | Resume positions. Needs a runtime from the catalog. |
 | `lists-watchlist.json` | The watchlist. |
 | `hidden-progress-watched.json` | Hidden shows. Hidden shows do not appear as unwatched. |
@@ -376,6 +377,7 @@ UUID returns `400 Bad Request`.
 | `GET` | `/api/watchlist` | Watchlist with watched counts. |
 | `POST` / `DELETE` | `/api/movies/:id/watchlist`, `/api/shows/:id/watchlist` | Add to or remove from the watchlist. |
 | `POST` / `DELETE` | `/api/shows/:id/hidden` | Hide a show from the unwatched list, or unhide it. |
+| `GET` / `POST` / `DELETE` | `/api/ratings/:kind/:id` | Read, set, or clear the user rating of a `movie`, a `show`, or an `episode`. POST body: `{ "rating": 8 }` on the 0 to 10 scale. |
 | `GET` | `/api/webhooks` | The last 100 webhook events. |
 | `POST` | `/webhook/plex?token=` | Plex webhook endpoint. Accepts multipart or JSON. |
 | `POST` | `/webhook/scrobble?token=` | Generic scrobble endpoint. Accepts JSON. |
@@ -417,9 +419,10 @@ With a catalog, an episode TMDB id also resolves its show.
 
 The recommendations need the catalog. Without it, every list is empty.
 
-There is no rating page. The watch history is the input, and a rating only
-changes a weight when there is one. Watchkeep gives each watched item a weight
-from these signals:
+The movie, show, and episode views show the stored user rating. The user can
+set or clear that rating in the UI. The watch history is still the input of
+the recommendations. A rating only changes a weight when there is one.
+Watchkeep gives each watched item a weight from these signals:
 
 | Signal | Effect on the weight |
 |---|---|
