@@ -23,6 +23,7 @@ export type { RatingKind } from "./generated/RatingKind.ts";
 export type { RatingView } from "./generated/RatingView.ts";
 export type { Recommendation } from "./generated/Recommendation.ts";
 export type { Recommendations } from "./generated/Recommendations.ts";
+export type { RecommendInput } from "./generated/RecommendInput.ts";
 export type { SearchResult } from "./generated/SearchResult.ts";
 export type { SearchResults } from "./generated/SearchResults.ts";
 export type { ServerConfig } from "./generated/ServerConfig.ts";

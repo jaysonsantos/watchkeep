@@ -1,6 +1,16 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { filterOf, type ListState, listUrl, pageCount, pageOf, sortOf } from "../src/lib/lists.ts";
+import {
+  filterOf,
+  type ListState,
+  listUrl,
+  pageCount,
+  pageOf,
+  recommendationsApiUrl,
+  recommendationsUrl,
+  recommendInputOf,
+  sortOf,
+} from "../src/lib/lists.ts";
 
 const state: ListState = { filter: "all", search: "Movie", sort: "title", page: 1, pageSize: 60 };
 
@@ -29,5 +39,16 @@ describe("list state", () => {
     assert.equal(filterOf("x"), "all");
     assert.equal(sortOf("year"), "year");
     assert.equal(sortOf(null), "recent");
+  });
+
+  it("reads the recommendation input and leaves the default out of the URL", () => {
+    assert.equal(recommendInputOf("ratings"), "ratings");
+    assert.equal(recommendInputOf("watch-history"), "watch-history");
+    assert.equal(recommendInputOf("x"), "watch-history");
+    assert.equal(recommendInputOf(null), "watch-history");
+    assert.equal(recommendationsUrl("watch-history"), "/recommendations");
+    assert.equal(recommendationsUrl("ratings"), "/recommendations?input=ratings");
+    assert.equal(recommendationsApiUrl("watch-history"), "/api/recommendations");
+    assert.equal(recommendationsApiUrl("ratings"), "/api/recommendations?input=ratings");
   });
 });

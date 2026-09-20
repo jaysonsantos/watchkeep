@@ -1,10 +1,14 @@
-//! Recommendations from the watch history and the TMDB catalog.
+//! Recommendations from the watch history or from the user ratings, and the
+//! TMDB catalog.
 //!
-//! The watch history gives an implicit taste profile: a weight per watched item
-//! from the plays, the replays, the share of a show that is watched, the age of
-//! the last play, and an explicit rating when there is one. The weights add up
-//! per genre, which gives one vector per genre kind. The catalog then scores its
-//! own items against that vector.
+//! The user picks the input of the taste profile. Watch history weighs each
+//! watched item from the plays, the replays, the share of a show that is
+//! watched, the age of the last play, and an explicit rating when there is one.
+//! Ratings weighs each rated item from the rating alone, so an unrated play
+//! adds nothing. A rating below the neutral mark also adds nothing: the floor
+//! that keeps a watched item in the watch-history profile does not apply.
+//! The weights add up per genre, which gives one vector per genre kind. The
+//! catalog then scores its own items against that vector.
 //!
 //! A list takes only a few items of one genre set and only a few movies of one
 //! collection, because the score of the items of one group barely differs and
@@ -29,6 +33,7 @@ use watchkeep_catalog::{
 use watchkeep_storage::clock::{SharedClock, date_of};
 use watchkeep_storage::model::MediaKind;
 use watchkeep_storage::queries::{Queries, TasteItem};
+use watchkeep_storage::text_enum;
 
 // region: constants
 
@@ -92,6 +97,24 @@ pub const CANDIDATE_LIMIT: i64 = 200;
 /// How many genres and how many languages the taste profile reports.
 const PROFILE_TOP: usize = 5;
 
+text_enum! {
+    /// How the taste profile weighs the library. `watch-history` is the default.
+    RecommendInput {
+        WatchHistory => "watch-history",
+        Ratings => "ratings",
+    }
+}
+
+impl RecommendInput {
+    pub const DEFAULT: Self = Self::WatchHistory;
+}
+
+impl Default for RecommendInput {
+    fn default() -> Self {
+        Self::DEFAULT
+    }
+}
+
 // endregion: constants
 
 // region: response types
@@ -122,13 +145,15 @@ pub struct TasteShare {
     pub share: f64,
 }
 
-/// What the watch history says about taste. The page shows it, so that the
+/// What the selected input says about taste. The page shows it, so that the
 /// reason behind the lists is visible.
 #[derive(Clone, Debug, Default, Serialize, ts_rs::TS)]
 #[ts(export)]
 #[serde(rename_all = "camelCase")]
 pub struct TasteProfile {
-    /// Watched items with a TMDB id. Nothing else feeds the profile.
+    /// Items that feed the profile. Watch history counts watched items. Ratings
+    /// counts items rated at or above the neutral mark. Nothing else feeds the
+    /// profile.
     pub items: i64,
     pub genres: Vec<TasteShare>,
     pub languages: Vec<TasteShare>,
@@ -139,6 +164,8 @@ pub struct TasteProfile {
 #[ts(export)]
 #[serde(rename_all = "camelCase")]
 pub struct Recommendations {
+    /// The input that built the profile. The default is watch history.
+    pub input: RecommendInput,
     pub profile: TasteProfile,
     pub movies: Vec<Recommendation<CatalogMovie>>,
     pub shows: Vec<Recommendation<CatalogShow>>,
@@ -152,9 +179,23 @@ pub struct Recommendations {
 
 // region: the profile
 
-/// The weight of one watched item. An item with no play weighs nothing: it only
-/// keeps its TMDB id out of the candidates.
-fn weight_of(item: &TasteItem, total_episodes: i64, now: DateTime<Utc>) -> f64 {
+/// The weight of one library item for the selected input. An item that weighs
+/// nothing still keeps its TMDB id out of the candidates.
+fn weight_of(
+    item: &TasteItem,
+    total_episodes: i64,
+    now: DateTime<Utc>,
+    input: RecommendInput,
+) -> f64 {
+    match input {
+        RecommendInput::WatchHistory => watch_history_weight(item, total_episodes, now),
+        RecommendInput::Ratings => ratings_weight(item),
+    }
+}
+
+/// A play is the base weight. A rating only changes that weight when a play
+/// exists. An item with no play weighs nothing.
+fn watch_history_weight(item: &TasteItem, total_episodes: i64, now: DateTime<Utc>) -> f64 {
     if item.watched_count == 0 {
         return 0.0;
     }
@@ -165,9 +206,29 @@ fn weight_of(item: &TasteItem, total_episodes: i64, now: DateTime<Utc>) -> f64 {
         weight *= MIN_COMPLETION_WEIGHT + (1.0 - MIN_COMPLETION_WEIGHT) * completion;
     }
     if let Some(rating) = item.rating {
-        weight *= (rating / NEUTRAL_RATING).clamp(MIN_RATING_WEIGHT, MAX_RATING_WEIGHT);
+        weight *= rating_factor(rating);
     }
     weight * recency_of(item.last_watched_at, now)
+}
+
+/// A rating is the base weight. An item with no rating weighs nothing. A play
+/// without a rating does not feed the profile. A rating below the neutral mark
+/// adds no positive affinity, including a valid `0.0`: the watch-history floor
+/// that keeps a watched item in the profile does not apply here.
+fn ratings_weight(item: &TasteItem) -> f64 {
+    let Some(rating) = item.rating else {
+        return 0.0;
+    };
+    if rating < NEUTRAL_RATING {
+        return 0.0;
+    }
+    (rating / NEUTRAL_RATING).min(MAX_RATING_WEIGHT) * BASE_WEIGHT
+}
+
+/// How a rating changes the weight of a watched item. The floor keeps a
+/// watched item in the profile even when the rating is zero.
+fn rating_factor(rating: f64) -> f64 {
+    (rating / NEUTRAL_RATING).clamp(MIN_RATING_WEIGHT, MAX_RATING_WEIGHT)
 }
 
 /// How much of its weight a play keeps, by its age.
@@ -255,6 +316,7 @@ impl Taste {
         genre_names: &GenreNames,
         episode_totals: &HashMap<i64, i64>,
         now: DateTime<Utc>,
+        input: RecommendInput,
     ) -> Self {
         let mut taste = Self::default();
         let mut by_genre_name: HashMap<String, f64> = HashMap::new();
@@ -276,7 +338,7 @@ impl Taste {
                 .copied()
                 .unwrap_or(0)
                 .max(item.episode_count);
-            let weight = weight_of(item, total_episodes, now);
+            let weight = weight_of(item, total_episodes, now, input);
             if weight <= 0.0 {
                 continue;
             }
@@ -405,11 +467,18 @@ impl Recommender {
     #[instrument(
         skip_all,
         err,
-        fields(taste.items = field::Empty, catalog.enabled = self.catalog.is_some())
+        fields(
+            recommend.input = input.as_str(),
+            taste.items = field::Empty,
+            catalog.enabled = self.catalog.is_some()
+        )
     )]
-    pub async fn recommendations(&self) -> Result<Recommendations> {
+    pub async fn recommendations(&self, input: RecommendInput) -> Result<Recommendations> {
         let Some(catalog) = &self.catalog else {
-            return Ok(Recommendations::default());
+            return Ok(Recommendations {
+                input,
+                ..Recommendations::default()
+            });
         };
         let now = self.clock.now();
         let today = date_of(now);
@@ -434,6 +503,7 @@ impl Recommender {
             &genre_names,
             &episode_totals,
             now,
+            input,
         );
         Span::current().record("taste.items", taste.watched_items);
         let movie_genres = unit_vector(&taste.movie_genres);
@@ -475,6 +545,7 @@ impl Recommender {
         )?;
         let returning = self.returning_list(catalog, &taste).await?;
         Ok(Recommendations {
+            input,
             profile: taste.profile(),
             movies: rank(movies, &taste, &taste.movie_genres, &genre_names.movies),
             shows: rank(shows, &taste, &taste.show_genres, &genre_names.shows),

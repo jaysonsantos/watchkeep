@@ -1,8 +1,8 @@
 /** Filter, sort, and page state of the movie and show lists. The pages and the API client both use this module. */
 
-import type { SortOrder, WatchFilter } from "./types.ts";
+import type { RecommendInput, SortOrder, WatchFilter } from "./types.ts";
 
-export type { SortOrder, WatchFilter };
+export type { RecommendInput, SortOrder, WatchFilter };
 
 export const SORT_ORDERS: ReadonlyArray<[SortOrder, string]> = [
   ["recent", "Last watched"],
@@ -23,7 +23,15 @@ export const QUERY = {
   limit: "limit",
   offset: "offset",
   timezone: "tz",
+  input: "input",
 } as const;
+
+export const DEFAULT_RECOMMEND_INPUT: RecommendInput = "watch-history";
+
+export const RECOMMEND_INPUTS: ReadonlyArray<[RecommendInput, string]> = [
+  ["watch-history", "Watch history"],
+  ["ratings", "Ratings"],
+];
 
 export const LIST_PAGE_SIZE = 60;
 
@@ -41,6 +49,20 @@ export function filterOf(value: string | null | undefined): WatchFilter {
 
 export function sortOf(value: string | null | undefined): SortOrder {
   return SORT_ORDERS.some(([sort]) => sort === value) ? (value as SortOrder) : DEFAULT_SORT;
+}
+
+export function recommendInputOf(value: string | null | undefined): RecommendInput {
+  return value === "ratings" ? "ratings" : DEFAULT_RECOMMEND_INPUT;
+}
+
+/** The recommendations page URL. The default input leaves the query string empty. */
+export function recommendationsUrl(input: RecommendInput): string {
+  return input === DEFAULT_RECOMMEND_INPUT ? "/recommendations" : `/recommendations?${QUERY.input}=${input}`;
+}
+
+/** The recommendations API path for the selected input. */
+export function recommendationsApiUrl(input: RecommendInput): string {
+  return input === DEFAULT_RECOMMEND_INPUT ? "/api/recommendations" : `/api/recommendations?${QUERY.input}=${input}`;
 }
 
 /** The requested page, clamped to the pages that exist. */

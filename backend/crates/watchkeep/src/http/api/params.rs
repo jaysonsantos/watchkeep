@@ -5,6 +5,8 @@ use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use watchkeep_storage::lists::{SortOrder, WatchFilter};
 
+use crate::recommend::RecommendInput;
+
 /// The largest `limit` a list route accepts.
 pub const MAX_LIST_LIMIT: i64 = 500;
 
@@ -97,6 +99,13 @@ pub struct StatisticsQuery {
 #[serde(default)]
 pub struct SearchQuery {
     pub q: String,
+}
+
+/// `/api/recommendations`. An unknown `input` value returns 400.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct RecommendationsQuery {
+    pub input: RecommendInput,
 }
 
 /// `POST /api/movies/:id/watched` and `POST /api/episodes/:id/watched`.
