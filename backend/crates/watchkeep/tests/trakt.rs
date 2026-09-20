@@ -438,6 +438,42 @@ async fn a_second_import_updates_ratings() -> Result<()> {
 }
 
 #[tokio::test]
+async fn an_older_trakt_import_does_not_overwrite_a_newer_rating() -> Result<()> {
+    let t = test_context(|_| {}, false).await?;
+    let mut files = export_files();
+    files.retain(|(name, _)| *name != "ratings-movies.json");
+    import(&t, &write_export(&files), false).await?;
+    let movies = t
+        .queries
+        .movies(WatchFilter::All, "Heat", SortOrder::Recent, None, 0)
+        .await?;
+    let movie = movies[0].id;
+    t.actions.set_rating(RatingKind::Movie, movie, 4.0).await?;
+
+    let report = import(
+        &t,
+        &write_export(&[(
+            "ratings-movies.json",
+            json!([{ "rated_at": "2020-01-01T00:00:00.000Z", "rating": 9, "type": "movie", "movie": heat() }])
+                .to_string(),
+        )]),
+        false,
+    )
+    .await?;
+    assert_eq!(report.ratings, 1);
+    let movies = t
+        .queries
+        .movies(WatchFilter::All, "Heat", SortOrder::Recent, None, 0)
+        .await?;
+    assert_eq!(
+        movies[0].rating,
+        Some(4.0),
+        "a newer UI rating stays when the Trakt rated_at is older"
+    );
+    t.close().await
+}
+
+#[tokio::test]
 async fn episode_ratings_do_not_fill_the_show_rating() -> Result<()> {
     let t = test_context(|_| {}, false).await?;
     let files = vec![(

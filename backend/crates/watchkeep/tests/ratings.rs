@@ -177,6 +177,46 @@ async fn plex_media_rate_writes_the_same_store() -> Result<()> {
 }
 
 #[tokio::test]
+async fn plex_media_rate_rejects_a_rating_outside_the_scale() -> Result<()> {
+    let t = test_context(|_| {}, false).await?;
+    let app = t.app();
+    let (status, body) = call(
+        &app,
+        multipart(&movie_payload(
+            json!({ "event": "media.rate", "rating": 8 }),
+            json!({}),
+        )),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let movie = body["targetId"].as_str().expect("a movie id");
+
+    for rating in [MIN_USER_RATING - 1.0, MAX_USER_RATING + 1.0] {
+        let (status, response) = call(
+            &app,
+            multipart(&movie_payload(
+                json!({ "event": "media.rate", "rating": rating }),
+                json!({}),
+            )),
+        )
+        .await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{rating}");
+        assert!(
+            response["error"]
+                .as_str()
+                .expect("error")
+                .contains("rating")
+        );
+        let (_, stored) = get(&app, &format!("/api/ratings/movie/{movie}")).await;
+        assert_eq!(
+            stored["rating"], 8.0,
+            "an out-of-range Plex rating must not overwrite a stored rating"
+        );
+    }
+    t.close().await
+}
+
+#[tokio::test]
 async fn rejects_a_rating_outside_the_scale() -> Result<()> {
     let t = test_context(|_| {}, false).await?;
     let app = t.app();

@@ -753,6 +753,8 @@ pub struct RatingInsert {
 }
 
 /// Insert or update ratings. Each `(kind, id)` pair must appear once.
+/// A stored rating that is newer than `rated_at` stays. Two imports can
+/// overlap, so the comparison belongs in the statement.
 pub async fn bulk_set_ratings(conn: &mut PgConnection, ratings: &[RatingInsert]) -> Result<()> {
     if ratings.is_empty() {
         return Ok(());
@@ -767,7 +769,8 @@ pub async fn bulk_set_ratings(conn: &mut PgConnection, ratings: &[RatingInsert])
     sqlx::query!(
         "INSERT INTO ratings (target_kind, target_id, rating, rated_at)
          SELECT * FROM UNNEST($1::text[], $2::uuid[], $3::float8[], $4::timestamptz[])
-         ON CONFLICT (target_kind, target_id) DO UPDATE SET rating = EXCLUDED.rating, rated_at = EXCLUDED.rated_at",
+         ON CONFLICT (target_kind, target_id) DO UPDATE SET rating = EXCLUDED.rating, rated_at = EXCLUDED.rated_at
+         WHERE ratings.rated_at <= EXCLUDED.rated_at",
         &kinds,
         &ids,
         &values,

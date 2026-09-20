@@ -17,8 +17,9 @@ use watchkeep_catalog::{Catalog, CatalogEpisode, CatalogMovie, CatalogShow};
 use watchkeep_storage::clock::SharedClock;
 use watchkeep_storage::library::{Library, PlayInput, ProgressInput};
 use watchkeep_storage::model::{
-    EpisodeInput, EpisodeRef, EpisodeRow, ExternalIds, MediaKind, MediaRef, MediaRow, MovieRef,
-    PlaySource, PlayState, ProgressRow, ShowRef, TargetKind, non_empty, tmdb_number, to_millis,
+    EpisodeInput, EpisodeRef, EpisodeRow, ExternalIds, MAX_USER_RATING, MIN_USER_RATING, MediaKind,
+    MediaRef, MediaRow, MovieRef, PlaySource, PlayState, ProgressRow, ShowRef, TargetKind,
+    non_empty, tmdb_number, to_millis, valid_user_rating,
 };
 use watchkeep_storage::text_enum;
 
@@ -944,6 +945,11 @@ impl Scrobbler {
         target: &ResolvedTarget,
     ) -> Result<ScrobbleResult> {
         if let Some(rating) = event.rating {
+            if !valid_user_rating(rating) {
+                return Err(eyre!(
+                    "rating must be between {MIN_USER_RATING} and {MAX_USER_RATING}"
+                ));
+            }
             library
                 .set_rating(target.kind.into(), target.id, rating, None)
                 .await?;

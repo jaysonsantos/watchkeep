@@ -117,8 +117,6 @@
                 <td>
                   {#if episode.id !== null}
                     <RatingControl kind="episode" id={episode.id} value={episode.rating} compact />
-                  {:else if episode.rating !== null}
-                    {fmtRating(episode.rating)}
                   {/if}
                 </td>
                 <td class="muted">{fmtDate(episode.last_watched_at)}</td>

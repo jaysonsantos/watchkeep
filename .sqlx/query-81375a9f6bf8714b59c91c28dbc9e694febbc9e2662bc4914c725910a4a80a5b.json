@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO ratings (target_kind, target_id, rating, rated_at)\n         SELECT * FROM UNNEST($1::text[], $2::uuid[], $3::float8[], $4::timestamptz[])\n         ON CONFLICT (target_kind, target_id) DO UPDATE SET rating = EXCLUDED.rating, rated_at = EXCLUDED.rated_at\n         WHERE ratings.rated_at <= EXCLUDED.rated_at",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "UuidArray",
+        "Float8Array",
+        "TimestamptzArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "81375a9f6bf8714b59c91c28dbc9e694febbc9e2662bc4914c725910a4a80a5b"
+}
