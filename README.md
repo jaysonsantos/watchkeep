@@ -432,9 +432,10 @@ from these signals:
 | The age of the last play | Half of the weight after two years, and never less than 30%. |
 | A rating from Plex, from Trakt, or from the UI | A rating above 6.5 lifts the weight. A rating below 6.5 cuts the weight. A rating changes the weight only when a play exists. |
 
-**Ratings** builds the profile from the items that the user rated. The rating
-is the weight. An item with no rating weighs nothing. A play without a rating
-does not feed the profile.
+**Ratings** builds the profile from the items that the user rated at 6.5 or
+above. The rating is the weight. An item with no rating weighs nothing. A
+rating below 6.5 also weighs nothing, including a valid 0. A play without a
+rating does not feed the profile.
 
 The movie, show, and episode views show the stored user rating. The user can
 set or clear that rating in the UI.
