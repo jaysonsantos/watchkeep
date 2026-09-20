@@ -2,6 +2,21 @@
 
 Every notable change of Watchkeep. The entries come from the commit messages.
 
+## [0.6.0](https://github.com/jaysonsantos/watchkeep/releases/tag/v0.6.0) - 2026-09-20
+
+### Documentation
+
+- Show the web UI with a demo recording in the README (#32) ([d7e25b4](https://github.com/jaysonsantos/watchkeep/commit/d7e25b433789cd0966cb25ca94fa85fe97f0b0a9))
+
+### Features
+
+- **telemetry:** Name the database server on every statement span (#31) ([2a6a408](https://github.com/jaysonsantos/watchkeep/commit/2a6a4080c01667605904f6461a50a82d8cb88846))
+- Show and set user ratings on media (#35) ([0bb3d05](https://github.com/jaysonsantos/watchkeep/commit/0bb3d05ab146d040412c84a105fbae174a7b65f7))
+
+### Fixes
+
+- **recommend:** Cap the cards of one genre set and one collection (#23) ([d6dde2f](https://github.com/jaysonsantos/watchkeep/commit/d6dde2f91b20abce9d494ea65640416ac4fda57a))
+
 ## [0.5.0](https://github.com/jaysonsantos/watchkeep/releases/tag/v0.5.0) - 2026-09-18
 
 ### Continuous integration
