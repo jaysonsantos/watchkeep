@@ -2,6 +2,12 @@
 
 Every notable change of Watchkeep. The entries come from the commit messages.
 
+## [0.7.0](https://github.com/jaysonsantos/watchkeep/releases/tag/v0.7.0) - 2026-09-20
+
+### Features
+
+- Let the user pick recommendation input (watch history or ratings) (#36) ([86785dc](https://github.com/jaysonsantos/watchkeep/commit/86785dc9aa5639c4f132e504eca0c147e0d11050))
+
 ## [0.6.0](https://github.com/jaysonsantos/watchkeep/releases/tag/v0.6.0) - 2026-09-20
 
 ### Documentation
