@@ -8,6 +8,7 @@ import type { TasteShare } from "./TasteShare";
 export type TasteProfile = { 
 /**
  * Items that feed the profile. Watch history counts watched items. Ratings
- * counts rated items. Nothing else feeds the profile.
+ * counts items rated at or above the neutral mark. Nothing else feeds the
+ * profile.
  */
 items: number, genres: Array<TasteShare>, languages: Array<TasteShare>, };
