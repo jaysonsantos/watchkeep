@@ -10,8 +10,8 @@ use watchkeep_catalog::Catalog;
 use watchkeep_storage::clock::{SharedClock, date_of};
 use watchkeep_storage::library::{Library, PlayInput};
 use watchkeep_storage::model::{
-    EpisodeInput, ExternalIds, MediaKind, MediaRow, MovieRef, PlaySource, SPECIALS_SEASON, ShowRef,
-    TargetKind,
+    EpisodeInput, ExternalIds, MediaKind, MediaRow, MovieRef, PlaySource, RatingKind,
+    SPECIALS_SEASON, ShowRef, TargetKind,
 };
 
 use crate::scrobble::{enrich_movie, enrich_show, runtime_to_duration};
@@ -348,6 +348,52 @@ impl Actions {
     #[instrument(skip_all, err, fields(target.kind = kind.as_str(), target.id = %id))]
     pub async fn clear_progress(&self, kind: TargetKind, id: Uuid) -> Result<()> {
         self.library().await?.clear_progress(kind, id).await
+    }
+
+    /// The stored rating of a library item, or `None` when the item does not exist.
+    /// `Some(None)` is an item with no rating.
+    #[instrument(skip_all, err, fields(target.kind = kind.as_str(), target.id = %id))]
+    pub async fn rating(&self, kind: RatingKind, id: Uuid) -> Result<Option<Option<f64>>> {
+        if !self.rating_target_exists(kind, id).await? {
+            return Ok(None);
+        }
+        Ok(Some(self.library().await?.get_rating(kind, id).await?))
+    }
+
+    #[instrument(skip_all, err, fields(target.kind = kind.as_str(), target.id = %id))]
+    pub async fn set_rating(&self, kind: RatingKind, id: Uuid, rating: f64) -> Result<bool> {
+        if !self.rating_target_exists(kind, id).await? {
+            return Ok(false);
+        }
+        self.library()
+            .await?
+            .set_rating(kind, id, rating, None)
+            .await?;
+        Ok(true)
+    }
+
+    #[instrument(skip_all, err, fields(target.kind = kind.as_str(), target.id = %id))]
+    pub async fn clear_rating(&self, kind: RatingKind, id: Uuid) -> Result<bool> {
+        if !self.rating_target_exists(kind, id).await? {
+            return Ok(false);
+        }
+        self.library().await?.clear_rating(kind, id).await?;
+        Ok(true)
+    }
+
+    async fn rating_target_exists(&self, kind: RatingKind, id: Uuid) -> Result<bool> {
+        let mut library = self.library().await?;
+        Ok(match kind {
+            RatingKind::Movie => library
+                .get_media(id)
+                .await?
+                .is_some_and(|media| media.kind == MediaKind::Movie),
+            RatingKind::Show => library
+                .get_media(id)
+                .await?
+                .is_some_and(|media| media.kind == MediaKind::Show),
+            RatingKind::Episode => library.get_episode(id).await?.is_some(),
+        })
     }
 
     async fn exists(&self, kind: TargetKind, id: Uuid) -> Result<bool> {

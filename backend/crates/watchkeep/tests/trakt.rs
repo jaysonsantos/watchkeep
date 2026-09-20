@@ -161,6 +161,13 @@ fn maps_file_names_to_sections() {
     );
     assert_eq!(section_of("watched-movies-1.json"), None);
     assert_eq!(section_of("ratings-seasons.json"), None);
+    assert_eq!(
+        section_of("ratings-movies.json"),
+        Some(Section::Ratings),
+        "the Trakt export still names movie ratings this way"
+    );
+    assert_eq!(section_of("ratings-shows.json"), Some(Section::Ratings));
+    assert_eq!(section_of("ratings-episodes.json"), Some(Section::Ratings));
 }
 
 #[tokio::test]
@@ -400,5 +407,89 @@ async fn adds_and_removes_watchlist_items_and_hides_shows() -> Result<()> {
     let (_, detail) = get(&app, &format!("/api/shows/{}", show.id)).await;
     assert_eq!(detail["on_watchlist"], false);
     assert_eq!(detail["hidden_at"], Value::Null);
+    t.close().await
+}
+
+#[tokio::test]
+async fn a_second_import_updates_ratings() -> Result<()> {
+    let t = test_context(|_| {}, false).await?;
+    import(&t, &write_export(&export_files()), false).await?;
+    let movies = t
+        .queries
+        .movies(WatchFilter::All, "Heat", SortOrder::Recent, None, 0)
+        .await?;
+    assert_eq!(movies[0].rating, Some(9.0));
+
+    let mut files = export_files();
+    files.retain(|(name, _)| *name != "ratings-movies.json");
+    files.push((
+        "ratings-movies.json",
+        json!([{ "rated_at": "2026-09-01T00:00:00.000Z", "rating": 7, "type": "movie", "movie": heat() }])
+            .to_string(),
+    ));
+    let report = import(&t, &write_export(&files), false).await?;
+    assert_eq!(report.ratings, 3);
+    let movies = t
+        .queries
+        .movies(WatchFilter::All, "Heat", SortOrder::Recent, None, 0)
+        .await?;
+    assert_eq!(movies[0].rating, Some(7.0), "the later rated_at wins");
+    t.close().await
+}
+
+#[tokio::test]
+async fn an_older_trakt_import_does_not_overwrite_a_newer_rating() -> Result<()> {
+    let t = test_context(|_| {}, false).await?;
+    let mut files = export_files();
+    files.retain(|(name, _)| *name != "ratings-movies.json");
+    import(&t, &write_export(&files), false).await?;
+    let movies = t
+        .queries
+        .movies(WatchFilter::All, "Heat", SortOrder::Recent, None, 0)
+        .await?;
+    let movie = movies[0].id;
+    t.actions.set_rating(RatingKind::Movie, movie, 4.0).await?;
+
+    let report = import(
+        &t,
+        &write_export(&[(
+            "ratings-movies.json",
+            json!([{ "rated_at": "2020-01-01T00:00:00.000Z", "rating": 9, "type": "movie", "movie": heat() }])
+                .to_string(),
+        )]),
+        false,
+    )
+    .await?;
+    assert_eq!(report.ratings, 1);
+    let movies = t
+        .queries
+        .movies(WatchFilter::All, "Heat", SortOrder::Recent, None, 0)
+        .await?;
+    assert_eq!(
+        movies[0].rating,
+        Some(4.0),
+        "a newer UI rating stays when the Trakt rated_at is older"
+    );
+    t.close().await
+}
+
+#[tokio::test]
+async fn episode_ratings_do_not_fill_the_show_rating() -> Result<()> {
+    let t = test_context(|_| {}, false).await?;
+    let files = vec![(
+        "ratings-episodes-1.json",
+        json!([{ "rated_at": "2021-05-24T21:00:40.000Z", "rating": 8, "type": "episode", "episode": episode1(), "show": severance() }])
+            .to_string(),
+    )];
+    let report = import(&t, &write_export(&files), false).await?;
+    assert_eq!(report.ratings, 1);
+    let shows = t.queries.shows("", SortOrder::Recent).await?;
+    assert_eq!(shows.len(), 1);
+    assert!(
+        shows[0].rating.is_none(),
+        "ratings-shows.json is the show rating; episode ratings stay on episodes"
+    );
+    let episodes = t.queries.episodes(shows[0].id).await?;
+    assert_eq!(episodes[0].rating, Some(8.0));
     t.close().await
 }

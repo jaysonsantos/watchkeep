@@ -44,6 +44,16 @@ crate::text_enum! {
     RatingKind { Movie => "movie", Show => "show", Episode => "episode" }
 }
 
+/// The bottom of the 0 to 10 scale of the `ratings` table.
+pub const MIN_USER_RATING: f64 = 0.0;
+/// The top of the 0 to 10 scale of the `ratings` table. Trakt and Plex write this scale.
+pub const MAX_USER_RATING: f64 = 10.0;
+
+/// True when `rating` is a finite value on the user rating scale.
+pub fn valid_user_rating(rating: f64) -> bool {
+    rating.is_finite() && (MIN_USER_RATING..=MAX_USER_RATING).contains(&rating)
+}
+
 crate::text_enum! {
     PlayState { Playing => "playing", Paused => "paused", Stopped => "stopped" }
 }

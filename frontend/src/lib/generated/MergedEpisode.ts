@@ -5,4 +5,8 @@ export type MergedEpisode = {
 /**
  * Local episode id, or `None` when the episode exists only in the catalog.
  */
-id: string | null, season: number, number: number, title: string | null, aired_at: string | null, duration_ms: number | null, play_count: number, last_watched_at: string | null, position_ms: number | null, progress_state: PlayState | null, tmdb_id: number | null, };
+id: string | null, season: number, number: number, title: string | null, aired_at: string | null, duration_ms: number | null, play_count: number, last_watched_at: string | null, position_ms: number | null, progress_state: PlayState | null, tmdb_id: number | null, 
+/**
+ * The stored user rating of this episode, when the episode has a local row.
+ */
+rating: number | null, };

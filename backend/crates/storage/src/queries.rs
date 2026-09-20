@@ -80,6 +80,8 @@ pub struct EpisodeView {
     pub last_watched_at: Option<DateTime<Utc>>,
     pub position_ms: Option<i64>,
     pub progress_state: Option<PlayState>,
+    /// The stored user rating of this episode.
+    pub rating: Option<f64>,
 }
 
 #[derive(Clone, Debug, Serialize, ts_rs::TS)]
@@ -382,7 +384,8 @@ impl Queries {
                       COUNT(p.id) AS "play_count!",
                       MAX(p.watched_at) AS "last_watched_at?",
                       pr.position_ms AS "position_ms?",
-                      pr.state AS "progress_state?: PlayState"
+                      pr.state AS "progress_state?: PlayState",
+                      (SELECT r.rating FROM ratings r WHERE r.target_kind = $3 AND r.target_id = e.id) AS "rating?"
                FROM episodes e
                LEFT JOIN plays p ON p.target_kind = $2 AND p.target_id = e.id
                LEFT JOIN progress pr ON pr.target_kind = $2 AND pr.target_id = e.id
@@ -390,7 +393,8 @@ impl Queries {
                GROUP BY e.id, pr.position_ms, pr.state
                ORDER BY e.season, e.number"#,
             show_id,
-            TargetKind::Episode.as_str()
+            TargetKind::Episode.as_str(),
+            RatingKind::Episode.as_str()
         )
         .fetch_all(&self.pool)
         .await?)

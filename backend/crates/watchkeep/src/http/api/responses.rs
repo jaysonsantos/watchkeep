@@ -84,3 +84,10 @@ pub struct SyncResponse {
     pub ok: bool,
     pub report: SyncReport,
 }
+
+/// `GET /api/ratings/:kind/:id`. `null` means the item has no rating.
+#[derive(Debug, Serialize, ts_rs::TS)]
+#[ts(export)]
+pub struct RatingView {
+    pub rating: Option<f64>,
+}

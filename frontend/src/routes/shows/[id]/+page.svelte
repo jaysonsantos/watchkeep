@@ -1,7 +1,8 @@
 <script lang="ts">
   import ActionButton from "$lib/components/ActionButton.svelte";
   import ProgressBar from "$lib/components/ProgressBar.svelte";
-  import { episodeCode, fmtDate, percent, today } from "$lib/format.ts";
+  import RatingControl from "$lib/components/RatingControl.svelte";
+  import { episodeCode, fmtDate, fmtRating, percent, today } from "$lib/format.ts";
   import type { PageProps } from "./$types";
 
   let { data }: PageProps = $props();
@@ -40,7 +41,7 @@
       <span class="badge" class:ok={complete} class:part={!complete && show.watched_count > 0}>
         {show.watched_count} / {show.total_episodes} watched
       </span>
-      {#if show.rating !== null}<span class="badge soft">★ {show.rating}/10</span>{/if}
+      {#if show.rating !== null}<span class="badge soft">{fmtRating(show.rating)}</span>{/if}
       {#if show.hidden_at}<span class="badge">hidden</span>{/if}
       {#if data.onWatchlist}<span class="badge soft">on watchlist</span>{/if}
       {#if nextUp}
@@ -50,6 +51,7 @@
     <ProgressBar value={show.watched_count} total={show.total_episodes || null} />
     {#if show.summary}<p class="summary">{show.summary}</p>{/if}
     <div class="actions">
+      <RatingControl kind="show" id={show.id} value={show.rating} compact />
       <ActionButton action="watch-show" id={show.id} label="Mark all watched" primary />
       <ActionButton action="unwatch-show" id={show.id} label="Mark all unwatched" />
       {#if data.onWatchlist}
@@ -79,7 +81,7 @@
       </summary>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Episode</th><th>Status</th><th></th><th>Last watched</th><th>Aired</th></tr></thead>
+          <thead><tr><th>Episode</th><th>Status</th><th></th><th>Rating</th><th>Last watched</th><th>Aired</th></tr></thead>
           <tbody>
             {#each episodes as episode (`${episode.season}:${episode.number}`)}
               {@const upcoming = Boolean(episode.aired_at && episode.aired_at > day)}
@@ -110,6 +112,11 @@
                     <ActionButton action="unwatch-episode" id={episode.id} label="Unwatch" small />
                   {:else}
                     <ActionButton action="watch-episode" id={episode.id} label="Watched" primary small />
+                  {/if}
+                </td>
+                <td>
+                  {#if episode.id !== null}
+                    <RatingControl kind="episode" id={episode.id} value={episode.rating} compact />
                   {/if}
                 </td>
                 <td class="muted">{fmtDate(episode.last_watched_at)}</td>
