@@ -192,6 +192,10 @@ async fn recommends_by_genre_and_names_the_matching_genres() -> Result<()> {
     let (status, body) = get(&t.app(), PATH).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
+        body["input"], "watch-history",
+        "the default input is watch history"
+    );
+    assert_eq!(
         body["profile"]["items"], 1,
         "one watched movie feeds the profile"
     );
@@ -549,11 +553,159 @@ async fn rate(t: &TestContext, kind: RatingKind, id: Uuid, rating: f64) -> Resul
     Ok(())
 }
 
+fn profile_genres(body: &Value) -> Vec<&str> {
+    body["profile"]["genres"]
+        .as_array()
+        .expect("an array")
+        .iter()
+        .map(|genre| genre["name"].as_str().unwrap_or_default())
+        .collect()
+}
+
+/// Heat is rated and not watched. The Big Lebowski is watched and not rated.
+/// The two items carry different genres, so each mode feeds a different profile.
+async fn seed_mixed_signals(t: &TestContext) -> Result<()> {
+    seed_recommendations(t.catalog_pool.as_ref().expect("a catalog pool")).await?;
+    let (status, heat) = call(
+        &t.app(),
+        json_request(Method::POST, "/api/movies", &json!({ "tmdb_id": 949 })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let heat_id: Uuid = id_of(&heat);
+    let (status, _) = call(
+        &t.app(),
+        json_request(
+            Method::POST,
+            &format!("/api/ratings/movie/{heat_id}"),
+            &json!({ "rating": 9.0 }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    watch_movie(t, 601).await?;
+    Ok(())
+}
+
+/// Watch-history mode with no query string matches `input=watch-history`.
+#[tokio::test]
+async fn watch_history_mode_matches_the_default_for_the_same_fixtures() -> Result<()> {
+    let t = test_context(|_| {}, true).await?;
+    seed_mixed_signals(&t).await?;
+
+    let (status, default_body) = get(&t.app(), PATH).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, named_body) = get(&t.app(), &format!("{PATH}?input=watch-history")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(default_body, named_body);
+    assert_eq!(default_body["input"], "watch-history");
+    assert_eq!(
+        default_body["profile"]["items"], 1,
+        "only the watched unrated movie feeds watch history"
+    );
+    assert_eq!(profile_genres(&default_body), vec!["Comedy"]);
+    let movies = tmdb_ids(&default_body["movies"]);
+    assert!(
+        !movies.contains(&600),
+        "Thief shares no genre with the watched movie: {movies:?}"
+    );
+    assert!(
+        !movies.contains(&949) && !movies.contains(&601),
+        "the library movies stay out of the list: {movies:?}"
+    );
+    assert_eq!(
+        tmdb_ids(&default_body["nextInCollection"]),
+        Vec::<i64>::new(),
+        "an unwatched rating does not open a collection"
+    );
+    t.close().await
+}
+
+/// Ratings mode ranks from the rated item and skips the unrated play.
+#[tokio::test]
+async fn ratings_mode_ranks_from_rated_items_and_skips_unrated_plays() -> Result<()> {
+    let t = test_context(|_| {}, true).await?;
+    seed_mixed_signals(&t).await?;
+
+    let (status, body) = get(&t.app(), &format!("{PATH}?input=ratings")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["input"], "ratings");
+    assert_eq!(
+        body["profile"]["items"], 1,
+        "only the rated movie feeds the profile"
+    );
+    assert_eq!(
+        profile_genres(&body),
+        vec!["Action", "Crime", "Drama"],
+        "the rated movie is Heat"
+    );
+    let movies = tmdb_ids(&body["movies"]);
+    assert!(
+        movies.contains(&600),
+        "Thief shares both genres of the rated movie: {movies:?}"
+    );
+    assert!(
+        !movies.contains(&949) && !movies.contains(&601),
+        "the library movies stay out of the list: {movies:?}"
+    );
+    assert_eq!(
+        tmdb_ids(&body["nextInCollection"]),
+        vec![4638],
+        "the rated movie opens its collection"
+    );
+    t.close().await
+}
+
+/// An unrated play feeds watch history and leaves ratings mode empty.
+#[tokio::test]
+async fn ratings_mode_does_not_treat_an_unrated_play_as_taste() -> Result<()> {
+    let t = test_context(|_| {}, true).await?;
+    seed_recommendations(t.catalog_pool.as_ref().expect("a catalog pool")).await?;
+    t.scrobbler
+        .apply(&event(&movie_payload(
+            json!({ "event": "media.scrobble" }),
+            json!({}),
+        )))
+        .await?;
+
+    let (_, history) = get(&t.app(), PATH).await;
+    assert_eq!(history["profile"]["items"], 1);
+    assert!(
+        tmdb_ids(&history["movies"]).contains(&600),
+        "watch history still ranks from the unrated play"
+    );
+
+    let (_, ratings) = get(&t.app(), &format!("{PATH}?input=ratings")).await;
+    assert_eq!(
+        ratings["profile"]["items"], 0,
+        "an unrated play feeds no ratings profile"
+    );
+    assert_eq!(
+        tmdb_ids(&ratings["movies"]),
+        Vec::<i64>::new(),
+        "ratings mode does not treat the unrated play as taste"
+    );
+    t.close().await
+}
+
+#[tokio::test]
+async fn rejects_an_unknown_recommendation_input() -> Result<()> {
+    let t = test_context(|_| {}, true).await?;
+    let (status, _) = get(&t.app(), &format!("{PATH}?input=blend")).await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "an unknown input is an error"
+    );
+    t.close().await
+}
+
 #[tokio::test]
 async fn returns_empty_lists_without_a_catalog() -> Result<()> {
     let t = test_context(|_| {}, false).await?;
     let (status, body) = get(&t.app(), PATH).await;
     assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["input"], "watch-history");
     assert_eq!(body["profile"]["items"], 0);
     for list in ["movies", "shows", "nextInCollection", "returning"] {
         assert_eq!(

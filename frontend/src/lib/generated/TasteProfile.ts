@@ -2,11 +2,12 @@
 import type { TasteShare } from "./TasteShare";
 
 /**
- * What the watch history says about taste. The page shows it, so that the
+ * What the selected input says about taste. The page shows it, so that the
  * reason behind the lists is visible.
  */
 export type TasteProfile = { 
 /**
- * Watched items with a TMDB id. Nothing else feeds the profile.
+ * Items that feed the profile. Watch history counts watched items. Ratings
+ * counts rated items. Nothing else feeds the profile.
  */
 items: number, genres: Array<TasteShare>, languages: Array<TasteShare>, };

@@ -22,7 +22,7 @@ web UI.
 - Import of a Trakt data export: history, ratings, playback positions, watchlist, and hidden shows.
 - Watchlist for movies and shows.
 - Statistics page: watch time, plays per month, per weekday, and per hour, day streaks, top shows, and top movies.
-- Recommendations from the watch history: movies, shows, the rest of a collection, and shows that return.
+- Recommendations from the watch history or from the user ratings: movies, shows, the rest of a collection, and shows that return.
 - Add page: search the catalog by title and add a movie or show to the library or the watchlist.
 - Manual actions: mark a movie, an episode, or a whole show watched or unwatched.
 - User ratings on a movie, a show, or an episode. Set or clear a rating in the UI. Plex `media.rate` and a Trakt import write the same store.
@@ -373,7 +373,7 @@ UUID returns `400 Bad Request`.
 | `POST` | `/api/sync` | Run a Plex library sync. |
 | `GET` | `/api/search?q=` | Catalog search by title. Needs the catalog. Each result carries `localId` when the library has the item. |
 | `POST` | `/api/movies`, `/api/shows` | Add an item. Body: `tmdb_id` or `title`, optional `year` and `watchlist`. |
-| `GET` | `/api/recommendations` | What to watch next, with the taste profile. Needs the catalog. See [How recommendations work](#how-recommendations-work). |
+| `GET` | `/api/recommendations?input=watch-history\|ratings` | What to watch next, with the taste profile. `input` selects the signals. The default is `watch-history`. Needs the catalog. See [How recommendations work](#how-recommendations-work). |
 | `GET` | `/api/watchlist` | Watchlist with watched counts. |
 | `POST` / `DELETE` | `/api/movies/:id/watchlist`, `/api/shows/:id/watchlist` | Add to or remove from the watchlist. |
 | `POST` / `DELETE` | `/api/shows/:id/hidden` | Hide a show from the unwatched list, or unhide it. |
@@ -383,7 +383,7 @@ UUID returns `400 Bad Request`.
 | `POST` | `/webhook/scrobble?token=` | Generic scrobble endpoint. Accepts JSON. |
 | `GET` | `/healthz` | Health check. Runs one query on the Watchkeep database. |
 
-An unknown `status` or `sort` value returns `400 Bad Request`.
+An unknown `status`, `sort`, or `input` value returns `400 Bad Request`.
 
 ### List order and pages
 
@@ -419,10 +419,10 @@ With a catalog, an episode TMDB id also resolves its show.
 
 The recommendations need the catalog. Without it, every list is empty.
 
-The movie, show, and episode views show the stored user rating. The user can
-set or clear that rating in the UI. The watch history is still the input of
-the recommendations. A rating only changes a weight when there is one.
-Watchkeep gives each watched item a weight from these signals:
+The user picks the input of the taste profile on the recommendations page.
+
+**Watch history** is the default. Watchkeep gives each watched item a weight
+from these signals:
 
 | Signal | Effect on the weight |
 |---|---|
@@ -430,7 +430,14 @@ Watchkeep gives each watched item a weight from these signals:
 | A replay | Up to twice the weight. |
 | The part of a show that is watched | A show that was dropped early keeps 20% of the weight. |
 | The age of the last play | Half of the weight after two years, and never less than 30%. |
-| A rating from Plex or from Trakt | A rating above 6.5 lifts the weight, a rating below it cuts the weight. |
+| A rating from Plex, from Trakt, or from the UI | A rating above 6.5 lifts the weight. A rating below 6.5 cuts the weight. A rating changes the weight only when a play exists. |
+
+**Ratings** builds the profile from the items that the user rated. The rating
+is the weight. An item with no rating weighs nothing. A play without a rating
+does not feed the profile.
+
+The movie, show, and episode views show the stored user rating. The user can
+set or clear that rating in the UI.
 
 The weights add up per genre and per original language. The genres travel by
 name, because TMDB numbers the genres of a movie and of a show apart: your
