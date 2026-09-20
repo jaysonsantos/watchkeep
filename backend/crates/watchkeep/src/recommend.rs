@@ -5,8 +5,10 @@
 //! watched item from the plays, the replays, the share of a show that is
 //! watched, the age of the last play, and an explicit rating when there is one.
 //! Ratings weighs each rated item from the rating alone, so an unrated play
-//! adds nothing. The weights add up per genre, which gives one vector per genre
-//! kind. The catalog then scores its own items against that vector.
+//! adds nothing. A rating below the neutral mark also adds nothing: the floor
+//! that keeps a watched item in the watch-history profile does not apply.
+//! The weights add up per genre, which gives one vector per genre kind. The
+//! catalog then scores its own items against that vector.
 //!
 //! A list takes only a few items of one genre set and only a few movies of one
 //! collection, because the score of the items of one group barely differs and
@@ -150,7 +152,8 @@ pub struct TasteShare {
 #[serde(rename_all = "camelCase")]
 pub struct TasteProfile {
     /// Items that feed the profile. Watch history counts watched items. Ratings
-    /// counts rated items. Nothing else feeds the profile.
+    /// counts items rated at or above the neutral mark. Nothing else feeds the
+    /// profile.
     pub items: i64,
     pub genres: Vec<TasteShare>,
     pub languages: Vec<TasteShare>,
@@ -209,11 +212,21 @@ fn watch_history_weight(item: &TasteItem, total_episodes: i64, now: DateTime<Utc
 }
 
 /// A rating is the base weight. An item with no rating weighs nothing. A play
-/// without a rating does not feed the profile.
+/// without a rating does not feed the profile. A rating below the neutral mark
+/// adds no positive affinity, including a valid `0.0`: the watch-history floor
+/// that keeps a watched item in the profile does not apply here.
 fn ratings_weight(item: &TasteItem) -> f64 {
-    item.rating.map(rating_factor).unwrap_or(0.0) * BASE_WEIGHT
+    let Some(rating) = item.rating else {
+        return 0.0;
+    };
+    if rating < NEUTRAL_RATING {
+        return 0.0;
+    }
+    (rating / NEUTRAL_RATING).min(MAX_RATING_WEIGHT) * BASE_WEIGHT
 }
 
+/// How a rating changes the weight of a watched item. The floor keeps a
+/// watched item in the profile even when the rating is zero.
 fn rating_factor(rating: f64) -> f64 {
     (rating / NEUTRAL_RATING).clamp(MIN_RATING_WEIGHT, MAX_RATING_WEIGHT)
 }

@@ -656,6 +656,92 @@ async fn ratings_mode_ranks_from_rated_items_and_skips_unrated_plays() -> Result
     t.close().await
 }
 
+/// A valid `0.0` rating must not become positive taste in ratings mode. The
+/// watch-history floor that keeps a watched item in the profile does not apply,
+/// so a zero or below-neutral rating adds no genre or collection affinity.
+#[tokio::test]
+async fn ratings_mode_does_not_treat_a_zero_rating_as_positive_taste() -> Result<()> {
+    let t = test_context(|_| {}, true).await?;
+    seed_recommendations(t.catalog_pool.as_ref().expect("a catalog pool")).await?;
+    let (status, heat) = call(
+        &t.app(),
+        json_request(Method::POST, "/api/movies", &json!({ "tmdb_id": 949 })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let heat_id: Uuid = id_of(&heat);
+    rate(&t, RatingKind::Movie, heat_id, 0.0).await?;
+
+    let (status, ratings) = get(&t.app(), &format!("{PATH}?input=ratings")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        ratings["profile"]["items"], 0,
+        "a zero rating feeds no ratings profile"
+    );
+    assert_eq!(
+        profile_genres(&ratings),
+        Vec::<&str>::new(),
+        "a zero rating must not add Heat's genres"
+    );
+    assert_eq!(
+        tmdb_ids(&ratings["movies"]),
+        Vec::<i64>::new(),
+        "ratings mode must not rank from a zero-rated movie"
+    );
+    assert_eq!(
+        tmdb_ids(&ratings["nextInCollection"]),
+        Vec::<i64>::new(),
+        "a zero-rated movie must not open its collection"
+    );
+
+    rate(&t, RatingKind::Movie, heat_id, 5.0).await?;
+    let (_, below_neutral) = get(&t.app(), &format!("{PATH}?input=ratings")).await;
+    assert_eq!(
+        below_neutral["profile"]["items"], 0,
+        "a rating below the neutral mark still feeds no ratings profile"
+    );
+    assert_eq!(
+        tmdb_ids(&below_neutral["nextInCollection"]),
+        Vec::<i64>::new(),
+        "a below-neutral rating must not open a collection"
+    );
+
+    let (status, _) = call(
+        &t.app(),
+        json_request(
+            Method::POST,
+            &format!("/api/movies/{heat_id}/watched"),
+            &json!({}),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    rate(&t, RatingKind::Movie, heat_id, 0.0).await?;
+
+    let (_, history) = get(&t.app(), PATH).await;
+    assert_eq!(
+        history["profile"]["items"], 1,
+        "watch history still keeps a watched item after a zero rating"
+    );
+    assert_eq!(
+        profile_genres(&history),
+        vec!["Action", "Crime", "Drama"],
+        "the watch-history floor still lets a zero-rated play feed genres"
+    );
+    assert_eq!(
+        tmdb_ids(&history["nextInCollection"]),
+        vec![4638],
+        "the watch-history floor still opens the collection of a watched movie"
+    );
+
+    let (_, ratings_after_watch) = get(&t.app(), &format!("{PATH}?input=ratings")).await;
+    assert_eq!(
+        ratings_after_watch["profile"]["items"], 0,
+        "a watched zero rating still feeds no ratings profile"
+    );
+    t.close().await
+}
+
 /// An unrated play feeds watch history and leaves ratings mode empty.
 #[tokio::test]
 async fn ratings_mode_does_not_treat_an_unrated_play_as_taste() -> Result<()> {
