@@ -1054,4 +1054,25 @@ footer {
   header .quick {
     display: none;
   }
+  /* One row: the logo, then the links, which scroll sideways and fade out at the two edges. */
+  header {
+    flex-wrap: nowrap;
+    gap: 0.3rem;
+    padding: 0.5rem 0 0.5rem 0.9rem;
+  }
+  .brand .name {
+    display: none;
+  }
+  header nav {
+    flex: 1;
+    min-width: 0;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding: 0 1.5rem 0 0.6rem;
+    mask-image: linear-gradient(90deg, transparent, #000 0.6rem, #000 calc(100% - 1.5rem), transparent);
+  }
+  header nav a {
+    flex: none;
+  }
 }

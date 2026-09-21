@@ -4,7 +4,7 @@
   import ProgressBar from "$lib/components/ProgressBar.svelte";
   import RatingControl from "$lib/components/RatingControl.svelte";
   import Toolbar from "$lib/components/Toolbar.svelte";
-  import { fmtDay } from "$lib/format.ts";
+  import { fmtShortDay } from "$lib/format.ts";
   import { listUrl, pageCount } from "$lib/lists.ts";
   import type { PageProps } from "./$types";
 
@@ -49,7 +49,7 @@
         <div class="body">
           <a class="t" {href} title={show.title}>{show.title}</a>
           <span class="m">{show.year ?? ""}{show.year ? " · " : ""}{show.watched_count} / {show.total_episodes} episodes</span>
-          {#if show.last_watched_at}<span class="m">Last {fmtDay(show.last_watched_at)}</span>{/if}
+          {#if show.last_watched_at}<span class="m">Last {fmtShortDay(show.last_watched_at)}</span>{/if}
         </div>
       </div>
     {/each}

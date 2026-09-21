@@ -17,6 +17,14 @@
     ["/webhooks", "Webhooks"],
   ];
 
+  let nav: HTMLElement | undefined = $state();
+
+  // On a phone the links are one row that scrolls sideways, so the link of the page must come into view.
+  $effect(() => {
+    void page.url.pathname;
+    nav?.querySelector(".active")?.scrollIntoView({ inline: "center", block: "nearest" });
+  });
+
   function active(href: string): boolean {
     const path = page.url.pathname;
     return href === "/" ? path === "/" : path === href || path.startsWith(`${href}/`);
@@ -24,8 +32,10 @@
 </script>
 
 <header>
-  <a class="brand" href="/"><img src="/logo.svg" alt="" width="30" height="30" />Watchkeep</a>
-  <nav>
+  <a class="brand" href="/" aria-label="Watchkeep">
+    <img src="/logo.svg" alt="" width="30" height="30" /><span class="name">Watchkeep</span>
+  </a>
+  <nav bind:this={nav}>
     {#each links as [href, label] (href)}
       <a {href} class:active={active(href)}>{label}</a>
     {/each}
