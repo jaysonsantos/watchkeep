@@ -51,7 +51,7 @@
     <ProgressBar value={show.watched_count} total={show.total_episodes || null} />
     {#if show.summary}<p class="summary">{show.summary}</p>{/if}
     <div class="actions">
-      <RatingControl kind="show" id={show.id} value={show.rating} compact />
+      <RatingControl kind="show" id={show.id} value={show.rating} />
       <ActionButton action="watch-show" id={show.id} label="Mark all watched" primary />
       <ActionButton action="unwatch-show" id={show.id} label="Mark all unwatched" />
       {#if data.onWatchlist}
@@ -116,7 +116,7 @@
                 </td>
                 <td>
                   {#if episode.id !== null}
-                    <RatingControl kind="episode" id={episode.id} value={episode.rating} compact />
+                    <RatingControl kind="episode" id={episode.id} value={episode.rating} />
                   {/if}
                 </td>
                 <td class="muted">{fmtDate(episode.last_watched_at)}</td>

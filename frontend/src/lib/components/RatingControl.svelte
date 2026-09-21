@@ -8,14 +8,20 @@
     kind: RatingKind;
     id: Id;
     value: number | null;
-    compact?: boolean;
   }
 
-  let { kind, id, value, compact = false }: Props = $props();
+  let { kind, id, value }: Props = $props();
 
+  // One page holds many controls, so each one names its own popover and its own anchor.
+  const uid = $props.id();
+  const popoverId = `rating-${uid}`;
+  const anchorName = `--rating-${uid}`;
+
+  let popover: HTMLDivElement | undefined = $state();
   let busy = $state(false);
 
   async function run(work: () => Promise<void>) {
+    popover?.hidePopover();
     busy = true;
     try {
       await work();
@@ -36,31 +42,45 @@
   }
 </script>
 
-<div class="rating-picker" class:compact>
-  {#if value !== null && !compact}
-    <span class="score">{fmtRating(value)}</span>
-  {/if}
-  {#each RATING_PICKS as rating (rating)}
-    <button
-      type="button"
-      class:on={value === rating}
-      disabled={busy}
-      aria-label="Rate {rating} out of {MAX_USER_RATING}"
-      aria-pressed={value === rating}
-      onclick={(event) => {
-        event.stopPropagation();
-        pick(rating);
-      }}>{rating}</button>
-  {/each}
-  {#if value !== null}
-    <button
-      type="button"
-      class="small"
-      disabled={busy}
-      onclick={(event) => {
-        event.stopPropagation();
-        clear();
-      }}>Clear</button
-    >
-  {/if}
-</div>
+<!-- One button shows the rating. The picks live in a popover, so a card or a table row stays small. -->
+<span class="rating">
+  <button
+    type="button"
+    class="rating-trigger"
+    class:rated={value !== null}
+    style:anchor-name={anchorName}
+    popovertarget={popoverId}
+    disabled={busy}
+    title={value === null ? "Rate" : "Change the rating"}
+    aria-label={value === null ? "Rate" : `Rated ${value} out of ${MAX_USER_RATING}. Change the rating`}
+  >
+    {#if busy}
+      …
+    {:else if value === null}
+      <span class="star">☆</span><span class="word">Rate</span>
+    {:else}
+      <span class="star">★</span>{value}
+    {/if}
+  </button>
+  <div bind:this={popover} id={popoverId} class="rating-pop" popover="auto" style:position-anchor={anchorName}>
+    <div class="head">
+      <span>Your rating</span>
+      <span class="score">{value === null ? "None" : fmtRating(value)}</span>
+    </div>
+    <div class="picks">
+      {#each RATING_PICKS as rating (rating)}
+        <button
+          type="button"
+          class:on={value === rating}
+          class:below={value !== null && rating < value}
+          aria-label="Rate {rating} out of {MAX_USER_RATING}"
+          aria-pressed={value === rating}
+          onclick={() => pick(rating)}>{rating}</button
+        >
+      {/each}
+    </div>
+    {#if value !== null}
+      <button type="button" class="small clear" onclick={clear}>Clear the rating</button>
+    {/if}
+  </div>
+</span>

@@ -33,15 +33,15 @@
             {#if movie.play_count > 0}
               <span class="badge ok">watched{movie.play_count > 1 ? ` ×${movie.play_count}` : ""}</span>
             {/if}
+            <RatingControl kind="movie" id={movie.id} value={movie.rating} />
           {/snippet}
         </Poster>
         <div class="body">
-          <span class="t">{movie.title}</span>
+          <span class="t" title={movie.title}>{movie.title}</span>
           <span class="m">
             {movie.year ?? ""}{movie.year && movie.duration_ms ? " · " : ""}{fmtDuration(movie.duration_ms)}
           </span>
           {#if movie.last_watched_at}<span class="m">Watched {fmtDay(movie.last_watched_at)}</span>{/if}
-          <RatingControl kind="movie" id={movie.id} value={movie.rating} compact />
           <div class="actions">
             {#if movie.play_count > 0}
               <ActionButton action="unwatch-movie" id={movie.id} label="Unwatch" small />

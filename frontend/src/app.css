@@ -12,8 +12,10 @@
   --accent-soft: #dff3ea;
   --warn: #c7691f;
   --warn-soft: #fbe9d9;
+  --star: #d9920a;
   --radius: 14px;
   --shadow: 0 1px 2px rgba(20, 30, 25, 0.06), 0 8px 24px -16px rgba(20, 30, 25, 0.25);
+  --shadow-pop: 0 2px 6px rgba(20, 30, 25, 0.1), 0 18px 40px -12px rgba(20, 30, 25, 0.35);
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -29,7 +31,9 @@
     --accent-soft: #163427;
     --warn: #f0a15a;
     --warn-soft: #3a2a17;
+    --star: #f5c451;
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px -20px rgba(0, 0, 0, 0.8);
+    --shadow-pop: 0 2px 6px rgba(0, 0, 0, 0.5), 0 18px 40px -12px rgba(0, 0, 0, 0.9);
   }
 }
 * {
@@ -301,28 +305,97 @@ button.small {
   gap: 0.4rem;
   align-items: center;
 }
-.rating-picker {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.2rem;
+/* Rating: one trigger button and a popover with the picks */
+.rating {
+  display: inline-flex;
 }
-.rating-picker .score {
-  font-weight: 600;
-  font-size: 0.82rem;
-  color: var(--accent-2);
-  margin-right: 0.25rem;
-}
-.rating-picker button {
-  min-width: 1.7rem;
-  justify-content: center;
-  padding: 0.18rem 0.28rem;
+.rating-trigger {
+  border-radius: 999px;
+  font-size: 0.78rem;
+  padding: 0.22rem 0.6rem;
+  gap: 0.25rem;
+  color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
-.rating-picker button.on {
+.rating-trigger .star {
+  color: var(--star);
+}
+.rating-trigger.rated {
+  color: var(--fg);
+}
+.rating-pop {
+  width: max-content;
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--fg);
+  /* The popover inherits from its place in the page, and a poster sets a large bold font. */
+  font-size: 0.9rem;
+  font-weight: 400;
+  box-shadow: var(--shadow-pop);
+}
+/* A browser without anchor positioning shows the popover in the middle of the page, over a dim page. */
+.rating-pop::backdrop {
+  background: rgba(0, 0, 0, 0.3);
+}
+@supports (position-area: bottom) {
+  .rating-pop {
+    inset: auto;
+    margin: 0.35rem 0;
+    position-area: bottom span-right;
+    /* On a phone the popover fits on neither side of a button in the middle, so the last two center it. */
+    position-try-fallbacks:
+      flip-inline,
+      flip-block,
+      flip-block flip-inline,
+      bottom,
+      top;
+  }
+  .rating-pop::backdrop {
+    background: transparent;
+  }
+}
+.rating-pop .head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  margin-bottom: 0.55rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+.rating-pop .score {
+  color: var(--muted);
+  font-weight: 500;
+}
+.rating-pop .picks {
+  display: grid;
+  grid-template-columns: repeat(5, 2.5rem);
+  gap: 0.3rem;
+}
+.rating-pop .picks button {
+  height: 2.5rem;
+  padding: 0;
+  justify-content: center;
+  font-size: 0.95rem;
+  font-variant-numeric: tabular-nums;
+}
+.rating-pop .picks button.below {
+  background: var(--accent-soft);
+  color: var(--accent-2);
+  border-color: transparent;
+}
+.rating-pop .picks button.on {
   background: var(--accent);
   color: var(--accent-fg);
   border-color: transparent;
+}
+.rating-pop .clear {
+  width: 100%;
+  justify-content: center;
+  margin-top: 0.55rem;
+  color: var(--muted);
 }
 
 /* Toolbar */
@@ -476,11 +549,49 @@ tr:last-child td {
   object-fit: cover;
   display: block;
 }
+.card .poster .art {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+.card a.t:hover {
+  text-decoration: underline;
+}
 .card .poster .badge {
+  /* A click on a badge goes to the link below it. */
+  pointer-events: none;
   position: absolute;
   left: 0.5rem;
   top: 0.5rem;
   box-shadow: var(--shadow);
+}
+/* The rating sits in the other top corner of the poster, on a dark pill that reads on every image. */
+.card .poster .rating {
+  position: absolute;
+  right: 0.5rem;
+  top: 0.5rem;
+}
+.card .poster .rating-trigger {
+  background: rgba(10, 14, 12, 0.72);
+  backdrop-filter: blur(6px);
+  border-color: transparent;
+  color: #ffffff;
+  box-shadow: var(--shadow);
+}
+.card .poster .rating-trigger:hover {
+  background: rgba(10, 14, 12, 0.9);
+}
+.card .poster .rating-trigger .star {
+  color: #f5c451;
+}
+.card .poster .rating-trigger .word {
+  display: none;
+}
+.card .poster .rating-pop {
+  position-area: bottom span-left;
 }
 .card .poster .bar {
   position: absolute;
