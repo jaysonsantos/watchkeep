@@ -30,6 +30,22 @@ export function fmtDay(value: string | null | undefined): string {
   return fmtDate(value).slice(0, DAY_LENGTH);
 }
 
+/**
+ * A day for a card: `10 Sep`, or `10 Sep 2024` when the year is not the year of `now`.
+ * The words come from the locale of the browser; a test passes its own.
+ */
+export function fmtShortDay(value: string | null | undefined, now: Date = new Date(), locale?: string): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const sameYear = date.getFullYear() === now.getFullYear();
+  return new Intl.DateTimeFormat(locale, {
+    day: "numeric",
+    month: "short",
+    year: sameYear ? undefined : "numeric",
+  }).format(date);
+}
+
 /** Today in the time zone of the browser, as `YYYY-MM-DD`, to compare with an air date. */
 export function today(): string {
   return localStamp(new Date()).slice(0, DAY_LENGTH);

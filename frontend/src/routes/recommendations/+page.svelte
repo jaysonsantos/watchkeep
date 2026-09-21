@@ -149,16 +149,21 @@
     <div class="grid">
       {#each section.items as item (item.tmdbId)}
         <div class="card">
-          <Poster images={data.images} path={item.posterPath} title={item.title}>
+          <Poster
+            images={data.images}
+            path={item.posterPath}
+            title={item.title}
+            href={section.linked && item.localId !== null ? `/shows/${item.localId}` : null}
+          >
             {#snippet badge()}
               <span class="badge ok">{fmtShare(item.score)}%</span>
             {/snippet}
           </Poster>
           <div class="body">
             {#if section.linked && item.localId !== null}
-              <a class="t" href="/shows/{item.localId}">{item.title}</a>
+              <a class="t" href="/shows/{item.localId}" title={item.title}>{item.title}</a>
             {:else}
-              <span class="t">{item.title}</span>
+              <span class="t" title={item.title}>{item.title}</span>
             {/if}
             <span class="m">{item.year ?? ""}</span>
             {#if item.reasons.length > 0}
