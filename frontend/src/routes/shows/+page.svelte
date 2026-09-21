@@ -2,8 +2,9 @@
   import Pager from "$lib/components/Pager.svelte";
   import Poster from "$lib/components/Poster.svelte";
   import ProgressBar from "$lib/components/ProgressBar.svelte";
+  import RatingControl from "$lib/components/RatingControl.svelte";
   import Toolbar from "$lib/components/Toolbar.svelte";
-  import { fmtDay, fmtRating } from "$lib/format.ts";
+  import { fmtDay } from "$lib/format.ts";
   import { listUrl, pageCount } from "$lib/lists.ts";
   import type { PageProps } from "./$types";
 
@@ -28,8 +29,9 @@
     {#each data.shows as show (show.id)}
       {@const complete = show.total_episodes > 0 && show.watched_count >= show.total_episodes}
       {@const left = Math.max(0, show.total_episodes - show.watched_count)}
-      <a class="card" href="/shows/{show.id}" style="text-decoration:none">
-        <Poster images={data.images} path={show.poster_path} title={show.title}>
+      {@const href = `/shows/${show.id}`}
+      <div class="card">
+        <Poster images={data.images} path={show.poster_path} title={show.title} {href}>
           {#snippet badge()}
             {#if complete}
               <span class="badge ok">complete</span>
@@ -38,17 +40,18 @@
             {:else if left > 0 && show.watched_count > 0}
               <span class="badge part">{left} left</span>
             {/if}
+            <RatingControl kind="show" id={show.id} value={show.rating} />
           {/snippet}
           {#snippet bar()}
             <ProgressBar value={show.watched_count} total={show.total_episodes || null} />
           {/snippet}
         </Poster>
         <div class="body">
-          <span class="t">{show.title}</span>
-          <span class="m">{show.year ?? ""}{show.year ? " · " : ""}{show.watched_count} / {show.total_episodes} episodes{show.rating !== null ? ` · ${fmtRating(show.rating)}` : ""}</span>
+          <a class="t" {href} title={show.title}>{show.title}</a>
+          <span class="m">{show.year ?? ""}{show.year ? " · " : ""}{show.watched_count} / {show.total_episodes} episodes</span>
           {#if show.last_watched_at}<span class="m">Last {fmtDay(show.last_watched_at)}</span>{/if}
         </div>
-      </a>
+      </div>
     {/each}
   </div>
 {/if}
