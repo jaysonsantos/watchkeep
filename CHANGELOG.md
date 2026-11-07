@@ -2,6 +2,14 @@
 
 Every notable change of Watchkeep. The entries come from the commit messages.
 
+## [0.8.0](https://github.com/jaysonsantos/watchkeep/releases/tag/v0.8.0) - 2026-11-07
+
+### Features
+
+- **ui:** Put the rating in a popover on the movie and show cards (#37) ([d0c1859](https://github.com/jaysonsantos/watchkeep/commit/d0c1859a2fddf830d9672961b8f76c5f9767d976))
+- **ui:** Use one card pattern, short dates, and a one-row phone header (#38) ([1a994a1](https://github.com/jaysonsantos/watchkeep/commit/1a994a170a64f201ffa40f8138202e136114b27b))
+- Mark a season watched and show page loads in the header (#39) ([b9e07a3](https://github.com/jaysonsantos/watchkeep/commit/b9e07a35721f968fe9acfb8a631cb0cd1cd73cff))
+
 ## [0.7.0](https://github.com/jaysonsantos/watchkeep/releases/tag/v0.7.0) - 2026-09-20
 
 ### Features
