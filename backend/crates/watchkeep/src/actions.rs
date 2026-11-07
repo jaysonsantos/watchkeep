@@ -152,12 +152,49 @@ impl Actions {
 
     /// Add one play to every known episode of the show that has no play yet.
     /// Returns the number of changed episodes, or `None` when the show does not exist.
-    #[instrument(skip_all, err, fields(show.id = %show_id))]
     pub async fn mark_show_watched(
         &self,
         show_id: Uuid,
         today: Option<NaiveDate>,
     ) -> Result<Option<i64>> {
+        self.mark_episodes_watched(show_id, None, today).await
+    }
+
+    /// Add one play to every known episode of one season that has no play yet.
+    /// Returns the number of changed episodes, or `None` when the show does not exist.
+    pub async fn mark_season_watched(
+        &self,
+        show_id: Uuid,
+        season: i32,
+        today: Option<NaiveDate>,
+    ) -> Result<Option<i64>> {
+        self.mark_episodes_watched(show_id, Some(season), today)
+            .await
+    }
+
+    /// Remove the plays of every episode of the show.
+    /// Returns the number of removed plays, or `None` when the show does not exist.
+    pub async fn mark_show_unwatched(&self, show_id: Uuid) -> Result<Option<i64>> {
+        self.mark_episodes_unwatched(show_id, None).await
+    }
+
+    /// Remove the plays of every episode of one season.
+    /// Returns the number of removed plays, or `None` when the show does not exist.
+    pub async fn mark_season_unwatched(&self, show_id: Uuid, season: i32) -> Result<Option<i64>> {
+        self.mark_episodes_unwatched(show_id, Some(season)).await
+    }
+
+    /// The episodes of the whole show (`season` is `None`) or of one season.
+    /// The whole show leaves out the specials; a season asks for them by number.
+    #[instrument(skip_all, err, fields(show.id = %show_id, episode.season = season))]
+    async fn mark_episodes_watched(
+        &self,
+        show_id: Uuid,
+        season: Option<i32>,
+        today: Option<NaiveDate>,
+    ) -> Result<Option<i64>> {
+        let in_scope =
+            |number: i32| season.map_or(number != SPECIALS_SEASON, |season| number == season);
         let Some(show) = self.get_show(show_id).await? else {
             return Ok(None);
         };
@@ -170,7 +207,7 @@ impl Actions {
             {
                 let cutoff = today.unwrap_or_else(|| date_of(self.clock.now()));
                 for detail in catalog.episodes(tmdb_id).await? {
-                    if detail.season == SPECIALS_SEASON || !has_aired(detail.air_date, cutoff) {
+                    if !in_scope(detail.season) || !has_aired(detail.air_date, cutoff) {
                         continue;
                     }
                     library
@@ -192,6 +229,9 @@ impl Actions {
                 }
             }
             for episode in library.list_episodes(show_id).await? {
+                if season.is_some_and(|season| episode.season != season) {
+                    continue;
+                }
                 if library.play_count(TargetKind::Episode, episode.id).await? > 0 {
                     continue;
                 }
@@ -217,9 +257,12 @@ impl Actions {
         Ok(Some(changed))
     }
 
-    /// Returns the number of removed plays, or `None` when the show does not exist.
-    #[instrument(skip_all, err, fields(show.id = %show_id))]
-    pub async fn mark_show_unwatched(&self, show_id: Uuid) -> Result<Option<i64>> {
+    #[instrument(skip_all, err, fields(show.id = %show_id, episode.season = season))]
+    async fn mark_episodes_unwatched(
+        &self,
+        show_id: Uuid,
+        season: Option<i32>,
+    ) -> Result<Option<i64>> {
         if self.get_show(show_id).await?.is_none() {
             return Ok(None);
         }
@@ -228,6 +271,9 @@ impl Actions {
             let mut library = Library::new(&mut *tx, self.clock.clone());
             let mut changed: i64 = 0;
             for episode in library.list_episodes(show_id).await? {
+                if season.is_some_and(|season| episode.season != season) {
+                    continue;
+                }
                 let removed = library
                     .remove_plays(TargetKind::Episode, episode.id)
                     .await?;

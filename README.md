@@ -368,6 +368,7 @@ UUID returns `400 Bad Request`.
 | `GET` | `/api/shows?status=&q=&sort=&limit=&offset=` | Shows with watched and total episode counts. |
 | `GET` | `/api/shows/:id` | One show with the merged episode list and `on_watchlist`. |
 | `POST` / `DELETE` | `/api/shows/:id/watched` | Mark every aired episode watched or unwatched. |
+| `POST` / `DELETE` | `/api/shows/:id/seasons/:s/watched` | Mark every aired episode of one season watched or unwatched. Season 0 holds the specials. |
 | `POST` / `DELETE` | `/api/episodes/:id/watched` | Mark a known episode. The body can carry `watched_at`. |
 | `POST` / `DELETE` | `/api/shows/:id/seasons/:s/episodes/:e/watched` | Mark an episode by number. |
 | `POST` | `/api/sync` | Run a Plex library sync. |

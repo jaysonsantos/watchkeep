@@ -1,5 +1,6 @@
-//! `/api/shows`: the list, one show with its episodes, adding, and the watched,
-//! watchlist, and hidden toggles.
+//! `/api/shows`: the list, one show with its episodes, adding, the watched
+//! toggles of the show, a season, and an episode, and the watchlist and hidden
+//! toggles.
 
 use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
@@ -19,6 +20,10 @@ pub fn routes() -> Router<SharedContext> {
         .route("/shows", get(list).post(add))
         .route("/shows/{id}", get(detail))
         .route("/shows/{id}/watched", post(watch_all).delete(unwatch_all))
+        .route(
+            "/shows/{id}/seasons/{season}/watched",
+            post(watch_season).delete(unwatch_season),
+        )
         .route(
             "/shows/{id}/seasons/{season}/episodes/{number}/watched",
             post(watch_episode).delete(unwatch_episode),
@@ -58,8 +63,8 @@ async fn add(State(ctx): State<SharedContext>, body: Bytes) -> ApiResult {
     add_media(&ctx, MediaKind::Show, &body).await
 }
 
-async fn watch_all(State(ctx): State<SharedContext>, Path(id): Path<Uuid>) -> ApiResult {
-    Ok(match ctx.actions.mark_show_watched(id, None).await? {
+fn episodes_changed(changed: Option<i64>) -> ApiResult {
+    Ok(match changed {
         Some(episodes_changed) => Json(EpisodesChanged {
             ok: true,
             episodes_changed,
@@ -69,8 +74,8 @@ async fn watch_all(State(ctx): State<SharedContext>, Path(id): Path<Uuid>) -> Ap
     })
 }
 
-async fn unwatch_all(State(ctx): State<SharedContext>, Path(id): Path<Uuid>) -> ApiResult {
-    Ok(match ctx.actions.mark_show_unwatched(id).await? {
+fn plays_removed(removed: Option<i64>) -> ApiResult {
+    Ok(match removed {
         Some(plays_removed) => Json(PlaysRemoved {
             ok: true,
             plays_removed,
@@ -78,6 +83,28 @@ async fn unwatch_all(State(ctx): State<SharedContext>, Path(id): Path<Uuid>) -> 
         .into_response(),
         None => not_found(),
     })
+}
+
+async fn watch_all(State(ctx): State<SharedContext>, Path(id): Path<Uuid>) -> ApiResult {
+    episodes_changed(ctx.actions.mark_show_watched(id, None).await?)
+}
+
+async fn unwatch_all(State(ctx): State<SharedContext>, Path(id): Path<Uuid>) -> ApiResult {
+    plays_removed(ctx.actions.mark_show_unwatched(id).await?)
+}
+
+async fn watch_season(
+    State(ctx): State<SharedContext>,
+    Path((id, season)): Path<(Uuid, i32)>,
+) -> ApiResult {
+    episodes_changed(ctx.actions.mark_season_watched(id, season, None).await?)
+}
+
+async fn unwatch_season(
+    State(ctx): State<SharedContext>,
+    Path((id, season)): Path<(Uuid, i32)>,
+) -> ApiResult {
+    plays_removed(ctx.actions.mark_season_unwatched(id, season).await?)
 }
 
 /// Mark an episode by number, for episodes that only the catalog knows.
