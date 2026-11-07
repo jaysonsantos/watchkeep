@@ -111,8 +111,52 @@ header nav a.active {
   color: var(--accent-fg);
   background: var(--accent);
 }
+header nav a.pending {
+  color: var(--fg);
+  background: var(--accent-soft);
+}
 header .quick {
   margin-left: auto;
+}
+
+/* A bar at the top of the page while the next page loads its data. It shows
+   after a short delay, so a fast load does not flash it. */
+.loading-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 20;
+  width: 100%;
+  height: 3px;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0;
+  animation: loading-show 0s linear 150ms forwards;
+}
+.loading-bar::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 40%;
+  background: var(--accent);
+  animation: loading-slide 1.1s ease-in-out infinite;
+}
+main[aria-busy="true"] {
+  opacity: 0.55;
+  transition: opacity 0.2s 150ms;
+}
+@keyframes loading-show {
+  to {
+    opacity: 1;
+  }
+}
+@keyframes loading-slide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
 }
 header .quick input {
   width: 200px;
@@ -705,6 +749,10 @@ tr:last-child td {
   .now-playing .dot {
     animation: none;
   }
+  .loading-bar::before {
+    width: 100%;
+    animation: none;
+  }
 }
 .np-grid {
   display: grid;
@@ -823,6 +871,12 @@ tr:last-child td {
 }
 .season summary .bar {
   width: 120px;
+}
+.season-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.2rem 0 0.6rem;
 }
 .ep-code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;

@@ -73,12 +73,21 @@
 {:else}
   {#each seasons as [season, episodes] (season)}
     {@const watched = episodes.filter((episode) => episode.play_count > 0).length}
+    {@const aired = episodes.filter((episode) => !episode.aired_at || episode.aired_at <= day).length}
     <details class="season" open={season > 0 && watched < episodes.length}>
       <summary>
         {season === 0 ? "Specials" : `Season ${season}`}
         <span class="muted" style="font-weight:500">{watched} / {episodes.length}</span>
         <ProgressBar value={watched} total={episodes.length} />
       </summary>
+      <div class="season-actions">
+        {#if watched < aired}
+          <ActionButton action="watch-season" id={show.id} label="Mark season watched" primary small fields={{ season }} />
+        {/if}
+        {#if watched > 0}
+          <ActionButton action="unwatch-season" id={show.id} label="Mark season unwatched" small fields={{ season }} />
+        {/if}
+      </div>
       <div class="table-wrap">
         <table>
           <thead><tr><th>Episode</th><th>Status</th><th></th><th>Rating</th><th>Last watched</th><th>Aired</th></tr></thead>

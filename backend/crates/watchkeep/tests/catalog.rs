@@ -4,10 +4,12 @@ use std::time::Duration;
 
 use axum::http::{Method, StatusCode};
 use common::{
-    call, episode_payload, event, get, json_request, movie_payload, request, test_context,
+    call, episode_payload, event, get, json_request, missing_id, movie_payload, request,
+    test_context,
 };
 use eyre::Result;
 use serde_json::json;
+use watchkeep::views::MergedEpisode;
 use watchkeep_storage::lists::{SortOrder, WatchFilter};
 
 #[tokio::test]
@@ -177,6 +179,55 @@ async fn lists_unwatched_episodes_from_the_catalog_and_counts_only_aired_ones() 
     assert_eq!(
         detail.episodes.iter().filter(|e| e.play_count > 0).count(),
         4
+    );
+    t.close().await
+}
+
+#[tokio::test]
+async fn marks_one_season_watched_and_unwatched() -> Result<()> {
+    let t = test_context(|_| {}, true).await?;
+    t.scrobbler
+        .apply(&event(&episode_payload(
+            json!({ "event": "media.scrobble" }),
+            json!({}),
+        )))
+        .await?;
+    let show_id = t.first_show().await?;
+    let watched_in = |episodes: &[MergedEpisode], season: i32| {
+        episodes
+            .iter()
+            .filter(|e| e.season == season && e.play_count > 0)
+            .count()
+    };
+
+    assert_eq!(
+        t.actions.mark_season_watched(show_id, 1, None).await?,
+        Some(2),
+        "S01E01 has a play; S01E02 and S01E03 get one"
+    );
+    let detail = t.views.show(show_id).await?.expect("show");
+    assert_eq!(watched_in(&detail.episodes, 1), 3);
+    assert_eq!(watched_in(&detail.episodes, 2), 0, "another season stays");
+    assert_eq!(watched_in(&detail.episodes, 0), 0, "the specials stay");
+
+    assert_eq!(
+        t.actions.mark_season_watched(show_id, 2, None).await?,
+        Some(1),
+        "the episode of 2099 has not aired"
+    );
+    assert_eq!(
+        t.actions.mark_season_watched(show_id, 0, None).await?,
+        Some(1),
+        "a season number of 0 marks the specials"
+    );
+
+    assert_eq!(t.actions.mark_season_unwatched(show_id, 1).await?, Some(3));
+    let detail = t.views.show(show_id).await?.expect("show");
+    assert_eq!(watched_in(&detail.episodes, 1), 0);
+    assert_eq!(watched_in(&detail.episodes, 2), 1);
+    assert_eq!(
+        t.actions.mark_season_watched(missing_id(), 1, None).await?,
+        None
     );
     t.close().await
 }

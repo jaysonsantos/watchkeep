@@ -126,6 +126,8 @@ export type ActionName =
   | "unwatch-episode"
   | "watch-episode-number"
   | "unwatch-episode-number"
+  | "watch-season"
+  | "unwatch-season"
   | "watch-show"
   | "unwatch-show"
   | "remove-play"
@@ -168,6 +170,10 @@ export function actionRequest(
         method: "DELETE",
         path: `${API_BASE}/shows/${id}/seasons/${fields.season}/episodes/${fields.number}/watched`,
       };
+    case "watch-season":
+      return { method: "POST", path: `${API_BASE}/shows/${id}/seasons/${fields.season}/watched` };
+    case "unwatch-season":
+      return { method: "DELETE", path: `${API_BASE}/shows/${id}/seasons/${fields.season}/watched` };
     case "watch-show":
       return { method: "POST", path: `${API_BASE}/shows/${id}/watched` };
     case "unwatch-show":
